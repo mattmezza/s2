@@ -3,7 +3,7 @@
 /* runtime behavior */
 static const char *default_window_class = "s2";
 static const int default_fill_mode = 0;
-static const char *default_save_directory = ".";
+static const char *default_save_directory = "~";
 
 /* tool palette (hex RGB, no leading # in code) */
 static const unsigned int palette[] = {
