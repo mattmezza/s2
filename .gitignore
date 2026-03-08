@@ -1,0 +1,14 @@
+# build artifacts
+*.o
+s2
+
+# local/runtime outputs
+*.png
+core
+core.*
+
+# generated local config
+config.h
+
+# local notes/spec drafts
+SPEC.md
