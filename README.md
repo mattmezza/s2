@@ -12,17 +12,37 @@ Early scaffold. See `SPEC.md` for the v1 contract and roadmap.
 make
 ```
 
-Dependencies (Arch):
+## Installation
+
+### Dependencies (Arch Linux)
 
 ```sh
 sudo pacman -S libx11 libxft freetype2 libpng xclip maim slop
 ```
 
-## Install
+### Dependencies (generic Linux)
+
+Install equivalents for:
+
+- X11 development headers/libs (`libX11`)
+- Xft + FreeType (`libXft`, `freetype2`)
+- PNG library (`libpng`)
+- clipboard helper (`xclip`)
+- optional capture workflow tools (`maim`, `slop`)
+
+### Build
+
+```sh
+make
+```
+
+### Install to system
 
 ```sh
 sudo make clean install
 ```
+
+Install destination defaults to `/usr/local/bin/s2` and can be changed in `config.mk`.
 
 ## Suckless-style config flow
 
@@ -48,6 +68,16 @@ make distclean
 ```sh
 maim -s | s2 -i -
 ```
+
+## Quick Start
+
+```sh
+maim -s | s2 -i -
+```
+
+- `Ctrl+C`: copy and exit
+- `Ctrl+S`: save timestamped PNG and exit (prints saved absolute path)
+- `q` / `Esc`: quit without save/copy
 
 ## Current controls
 
