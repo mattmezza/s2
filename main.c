@@ -40,7 +40,7 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 	const char *arg;
 
 	memset(cfg, 0, sizeof(*cfg));
-	cfg->output_path = default_output_path;
+	cfg->output_path = "./s2.png";
 	cfg->window_class = default_window_class;
 
 	for (i = 1; i < argc; i++) {

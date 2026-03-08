@@ -2206,7 +2206,6 @@ editor_run(const struct app_config *cfg, struct image *img)
 {
 	struct editor_state ed;
 	XEvent ev;
-	(void)default_output_path;
 	(void)default_window_class;
 
 	if (!cfg || !img || !img->pixels || img->width <= 0 || img->height <= 0) {

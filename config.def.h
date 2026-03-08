@@ -1,7 +1,6 @@
 /* See LICENSE file for copyright and license details. */
 
 /* runtime behavior */
-static const char *default_output_path = "./s2.png";
 static const char *default_window_class = "s2";
 static const int default_fill_mode = 0;
 static const char *default_save_directory = ".";
@@ -20,9 +19,9 @@ static const unsigned int palette[] = {
 };
 
 /* default tool values */
-static const int default_palette_index = 0;
-static const int default_thickness_index = 1;
-static const int default_text_scale = 2;
+static const int default_palette_index = 9;
+static const int default_thickness_index = 3;
+static const int default_text_scale = 3;
 static const int default_highlight_strength = 55;
 
 /* stroke/effect presets */
