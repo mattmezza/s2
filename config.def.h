@@ -19,10 +19,14 @@ static const unsigned int palette[] = {
 };
 
 /* default tool values */
-static const int default_palette_index = 9;
+static const int default_palette_index = 0;
 static const int default_thickness_index = 3;
 static const int default_text_scale = 3;
 static const int default_highlight_strength = 55;
+
+/* UI defaults */
+#define S2_DEFAULT_TOOL_INDEX 1
+#define S2_SELECTION_BBOX_COLOR 0x00ffffu
 
 /* stroke/effect presets */
 static const int thickness_presets[] = { 1, 2, 3, 5, 8 };
