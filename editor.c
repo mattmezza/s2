@@ -207,6 +207,29 @@ build_font_pattern(char *out, size_t outlen, int px)
 	snprintf(out, outlen, "%s:size=%d", base, px);
 }
 
+static void
+build_font_pattern_primary(char *out, size_t outlen, int px)
+{
+	char tmp[192];
+	char *comma;
+	char *end;
+
+	if (!out || outlen == 0) {
+		return;
+	}
+	build_font_pattern(tmp, sizeof(tmp), px);
+	comma = strchr(tmp, ',');
+	if (comma) {
+		*comma = '\0';
+		end = comma;
+		while (end > tmp && (end[-1] == ' ' || end[-1] == '\t')) {
+			end--;
+			*end = '\0';
+		}
+	}
+	snprintf(out, outlen, "%s", tmp);
+}
+
 static int
 number_radius_for_scale(int scale)
 {
@@ -715,8 +738,12 @@ font_for_scale(struct editor_state *ed, int scale)
 	if (ed->xftfont_tool[scale]) {
 		return ed->xftfont_tool[scale];
 	}
-	build_font_pattern(pat, sizeof(pat), 8 * scale);
+	build_font_pattern_primary(pat, sizeof(pat), 8 * scale);
 	ed->xftfont_tool[scale] = XftFontOpenName(ed->dpy, ed->screen, pat);
+	if (!ed->xftfont_tool[scale]) {
+		build_font_pattern(pat, sizeof(pat), 8 * scale);
+		ed->xftfont_tool[scale] = XftFontOpenName(ed->dpy, ed->screen, pat);
+	}
 	if (!ed->xftfont_tool[scale]) {
 		ed->xftfont_tool[scale] = ed->xftfont_status;
 	}
@@ -2613,8 +2640,12 @@ x11_setup(struct editor_state *ed)
 	ed->xftdraw = NULL;
 	{
 		char pat[192];
-		build_font_pattern(pat, sizeof(pat), 14);
+		build_font_pattern_primary(pat, sizeof(pat), 14);
 		ed->xftfont_status = XftFontOpenName(ed->dpy, ed->screen, pat);
+		if (!ed->xftfont_status) {
+			build_font_pattern(pat, sizeof(pat), 14);
+			ed->xftfont_status = XftFontOpenName(ed->dpy, ed->screen, pat);
+		}
 	}
 	if (!ed->xftfont_status) {
 		ed->xftfont_status = XftFontOpenName(ed->dpy, ed->screen, "monospace:size=14");
