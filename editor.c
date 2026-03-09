@@ -2859,14 +2859,32 @@ x11_setup(struct editor_state *ed)
 		XSizeHints hints;
 		int min_w = 640;
 		int min_h = 420;
+		int max_w = DisplayWidth(ed->dpy, ed->screen) - window_padding * 2;
+		int max_h = DisplayHeight(ed->dpy, ed->screen) - window_padding * 2;
 		int pref_w = ed->img->width;
 		int pref_h = ed->img->height + ed->status_h + ed->status_pad + window_padding * 2;
+		int win_w;
+		int win_h;
+		if (max_w < min_w) {
+			max_w = min_w;
+		}
+		if (max_h < min_h) {
+			max_h = min_h;
+		}
+		win_w = pref_w > min_w ? pref_w : min_w;
+		win_h = pref_h > min_h ? pref_h : min_h;
+		if (win_w > max_w) {
+			win_w = max_w;
+		}
+		if (win_h > max_h) {
+			win_h = max_h;
+		}
 		ed->win = XCreateSimpleWindow(ed->dpy,
 	                              RootWindow(ed->dpy, ed->screen),
 	                              0,
 	                              0,
-	                              (unsigned int)(pref_w > min_w ? pref_w : min_w),
-	                              (unsigned int)(pref_h > min_h ? pref_h : min_h),
+	                              (unsigned int)win_w,
+	                              (unsigned int)win_h,
 	                              0,
 	                              BlackPixel(ed->dpy, ed->screen),
 	                              ed->window_bg);
@@ -2884,9 +2902,15 @@ x11_setup(struct editor_state *ed)
 	if (ed->win_w < 640) {
 		ed->win_w = 640;
 	}
+	if (ed->win_w > DisplayWidth(ed->dpy, ed->screen) - window_padding * 2) {
+		ed->win_w = DisplayWidth(ed->dpy, ed->screen) - window_padding * 2;
+	}
 	ed->win_h = ed->img->height + ed->status_h + ed->status_pad + window_padding * 2;
 	if (ed->win_h < 420) {
 		ed->win_h = 420;
+	}
+	if (ed->win_h > DisplayHeight(ed->dpy, ed->screen) - window_padding * 2) {
+		ed->win_h = DisplayHeight(ed->dpy, ed->screen) - window_padding * 2;
 	}
 	ed->scale = 1.0f;
 	ed->canvas_x = 0;
