@@ -2164,15 +2164,68 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 			int by;
 			int bw;
 			int bh;
-			int scale = a->p0 > 0 ? a->p0 : 1;
+			int scale = a->p0 < 0 ? -a->p0 : a->p0;
 			int text_pad;
+			if (scale < 1) {
+				scale = 1;
+			}
 			text_box_metrics(ed, a->x0, a->y0, a->text ? a->text : "", scale, a->p0 < 0, &bx, &by, &bw, &bh);
 			text_pad = pad;
 			if (text_pad < 4) {
 				text_pad = 4;
 			}
 			if (a->p0 < 0) {
-				return x >= bx - text_pad && x <= bx + bw + text_pad && y >= by - text_pad && y <= by + bh + text_pad;
+				int pad_fill = text_bg_padding_for_scale(scale);
+				int radius = text_bg_radius_for_scale(scale);
+				int left = bx - text_pad;
+				int top = by - text_pad;
+				int right = bx + bw + text_pad;
+				int bottom = by + bh + text_pad;
+				int x0 = bx + pad_fill;
+				int y0 = by + pad_fill;
+				int w = bw - pad_fill * 2;
+				int h = bh - pad_fill * 2;
+				if (w < 1) {
+					w = 1;
+				}
+				if (h < 1) {
+					h = 1;
+				}
+				if (radius < 0) {
+					radius = 0;
+				}
+				if (radius > w / 2) {
+					radius = w / 2;
+				}
+				if (radius > h / 2) {
+					radius = h / 2;
+				}
+				if (x < left || x > right || y < top || y > bottom) {
+					return 0;
+				}
+				if (radius > 0) {
+					if (x < x0 + radius && y < y0 + radius) {
+						int dx = (x0 + radius - 1) - x;
+						int dy = (y0 + radius - 1) - y;
+						return dx * dx + dy * dy <= radius * radius;
+					}
+					if (x >= x0 + w - radius && y < y0 + radius) {
+						int dx = x - (x0 + w - radius);
+						int dy = (y0 + radius - 1) - y;
+						return dx * dx + dy * dy <= radius * radius;
+					}
+					if (x < x0 + radius && y >= y0 + h - radius) {
+						int dx = (x0 + radius - 1) - x;
+						int dy = y - (y0 + h - radius);
+						return dx * dx + dy * dy <= radius * radius;
+					}
+					if (x >= x0 + w - radius && y >= y0 + h - radius) {
+						int dx = x - (x0 + w - radius);
+						int dy = y - (y0 + h - radius);
+						return dx * dx + dy * dy <= radius * radius;
+					}
+				}
+				return 1;
 			}
 			{
 				int extra = scale * 4 + text_bg_padding_for_scale(scale) + TEXT_RENDER_PAD;
