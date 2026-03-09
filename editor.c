@@ -26,6 +26,14 @@
 #define selection_bbox_color 0x00ffffu
 #endif
 
+#ifndef default_pixelate_block
+#define default_pixelate_block 8
+#endif
+
+#ifndef default_blur_radius
+#define default_blur_radius 2
+#endif
+
 enum tool {
 	TOOL_SELECT = 0,
 	TOOL_ARROW,
@@ -149,6 +157,7 @@ struct editor_state {
 	int text_x;
 	int text_y;
 	int toolbar_hover;
+	int show_help;
 	const struct app_config *cfg;
 };
 
@@ -1286,6 +1295,62 @@ draw_pen_segment_overlay(struct editor_state *ed, int x0, int y0, int x1, int y1
 }
 
 static void
+draw_help_overlay(struct editor_state *ed)
+{
+	static const char *lines[] = {
+		"s2 key bindings",
+		"q / Esc: quit (cancel)",
+		"Enter: save and exit",
+		"Ctrl+S: save timestamped",
+		"Ctrl+C: copy and exit",
+		"Ctrl+Y: copy current",
+		"Ctrl+Z / Ctrl+Shift+Z: undo/redo",
+		"s: select  a: arrow  l: line  r: rect  o: circle",
+		"t: text  h: highlight  b: blur  p: pen  x: pixelate  c: picker",
+		"Space / left-click: apply tool",
+		"h/j/k/l or arrows: move cursor by 1px",
+		"H/J/K/L: move cursor by 10px",
+		"[ / ]: adjust size/strength",
+		"f: toggle fill  # + 6 hex: set color  1..9: palette color",
+		"X: cancel pending anchor/pen/text",
+		"?: toggle this help",
+	};
+	int n = (int)(sizeof(lines) / sizeof(lines[0]));
+	int i;
+	int pad = 12;
+	int line_h = 16;
+	int panel_w = 620;
+	int panel_h = pad * 2 + line_h * n;
+	int x;
+	int y;
+
+	if (!ed || !ed->dpy || !ed->win || !ed->gc) {
+		return;
+	}
+	x = (ed->win_w - panel_w) / 2;
+	y = (ed->win_h - panel_h) / 2;
+	if (x < 10) {
+		x = 10;
+	}
+	if (y < 10) {
+		y = 10;
+	}
+	XSetForeground(ed->dpy, ed->gc, 0x111111ul);
+	XFillRectangle(ed->dpy, ed->win, ed->gc, x, y, (unsigned int)panel_w, (unsigned int)panel_h);
+	XSetForeground(ed->dpy, ed->gc, 0xeeeeeeul);
+	XDrawRectangle(ed->dpy, ed->win, ed->gc, x, y, (unsigned int)panel_w, (unsigned int)panel_h);
+	for (i = 0; i < n; i++) {
+		XDrawString(ed->dpy,
+		            ed->win,
+		            ed->gc,
+		            x + pad,
+		            y + pad + (i + 1) * line_h - 3,
+		            lines[i],
+		            (int)strlen(lines[i]));
+	}
+}
+
+static void
 render_frame(struct editor_state *ed)
 {
 	if (ed->dirty) {
@@ -1464,6 +1529,9 @@ render_frame(struct editor_state *ed)
 		XDrawLine(ed->dpy, ed->win, ed->gc, cx, cy - 8, cx, cy + 8);
 		XSetForeground(ed->dpy, ed->gc, 0x000000ul);
 		XDrawPoint(ed->dpy, ed->win, ed->gc, cx, cy);
+	}
+	if (ed->show_help) {
+		draw_help_overlay(ed);
 	}
 	XFlush(ed->dpy);
 }
@@ -2047,6 +2115,11 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		return 1;
 	}
 
+	if (sym == XK_question) {
+		ed->show_help = !ed->show_help;
+		return 1;
+	}
+
 	if (ed->text_mode) {
 		return handle_text_mode(ed, kev);
 	}
@@ -2124,7 +2197,7 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		set_tool(ed, TOOL_BLUR);
 		return 1;
 	}
-	if (sym == XK_P) {
+	if (sym == XK_x) {
 		set_tool(ed, TOOL_PIXELATE);
 		return 1;
 	}
@@ -2243,7 +2316,7 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		return 1;
 	}
 
-	if (sym == XK_x) {
+	if (sym == XK_X) {
 		ed->anchor_active = 0;
 		reset_pen_input(ed);
 		if (ed->text_mode) {
@@ -2639,8 +2712,20 @@ editor_run(const struct app_config *cfg, struct image *img)
 	if (ed.text_scale > 8) {
 		ed.text_scale = 8;
 	}
-	ed.pixelate_block = 8;
-	ed.blur_radius = 2;
+	ed.pixelate_block = default_pixelate_block;
+	if (ed.pixelate_block < 2) {
+		ed.pixelate_block = 2;
+	}
+	if (ed.pixelate_block > 64) {
+		ed.pixelate_block = 64;
+	}
+	ed.blur_radius = default_blur_radius;
+	if (ed.blur_radius < 1) {
+		ed.blur_radius = 1;
+	}
+	if (ed.blur_radius > 16) {
+		ed.blur_radius = 16;
+	}
 	ed.highlight_strength = default_highlight_strength;
 	if (ed.highlight_strength < 1) {
 		ed.highlight_strength = 1;
