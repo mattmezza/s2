@@ -2208,10 +2208,10 @@ handle_text_mode(struct editor_state *ed, XKeyEvent *kev)
 		buf[n] = '\0';
 		for (i = 0; i < n; i++) {
 			unsigned char c = (unsigned char)buf[i];
-			if ((c & 0x80u) != 0) {
+			if (c == '\r' || c == '\n' || c < 0x20u) {
 				continue;
 			}
-			if (isprint((unsigned char)c) && ed->text_len < (int)sizeof(ed->text_buf) - 1) {
+			if (ed->text_len < (int)sizeof(ed->text_buf) - 1) {
 				ed->text_buf[ed->text_len++] = (char)c;
 				ed->text_buf[ed->text_len] = '\0';
 			}
