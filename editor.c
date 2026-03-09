@@ -2597,8 +2597,11 @@ static int
 handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 {
 	KeySym sym;
+	char kbuf[8];
+	int kn;
 	int max_t;
 	sym = XLookupKeysym(kev, 0);
+	kn = XLookupString(kev, kbuf, (int)sizeof(kbuf), NULL, NULL);
 
 	if ((kev->state & ControlMask) && (sym == XK_c || sym == XK_C)) {
 		finalize_pending_anchor(ed);
@@ -2607,7 +2610,7 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		return 1;
 	}
 
-	if (sym == XK_question) {
+	if (sym == XK_question || (kn > 0 && kbuf[0] == '?')) {
 		ed->show_help = !ed->show_help;
 		return 1;
 	}
