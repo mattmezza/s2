@@ -392,12 +392,6 @@ text_metrics_xft(const struct editor_state *ed, const char *text, int scale, int
 
 	width = 0;
 	height = font->ascent + font->descent;
-	if (font_fallback) {
-		int fh = font_fallback->ascent + font_fallback->descent;
-		if (fh > height) {
-			height = fh;
-		}
-	}
 	text_len = (int)strlen(text);
 	for (i = 0; i < text_len;) {
 		FcChar32 cp;
@@ -1242,13 +1236,7 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 		w = 8;
 	}
 	w += TEXT_RENDER_PAD * 2;
-	h = font->ascent + font->descent + 8;
-	if (font_fallback) {
-		int fh = font_fallback->ascent + font_fallback->descent + 8;
-		if (fh > h) {
-			h = fh;
-		}
-	}
+	h = font->ascent + font->descent + TEXT_RENDER_PAD * 2;
 	if (w <= 0 || h <= 0) {
 		if (font_fallback) {
 			XftFontClose(ed->dpy, font_fallback);
@@ -1283,11 +1271,7 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 
 	{
 		int pen_x = TEXT_RENDER_PAD;
-		int max_ascent = font->ascent;
-		if (font_fallback && font_fallback->ascent > max_ascent) {
-			max_ascent = font_fallback->ascent;
-		}
-		baseline = max_ascent + TEXT_RENDER_PAD;
+		baseline = font->ascent + TEXT_RENDER_PAD;
 		for (i = 0; i < text_len;) {
 			FcChar32 cp;
 			int used;
@@ -1318,7 +1302,7 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 				unsigned char g = pixel_channel(pp, xi->green_mask);
 				unsigned char b = pixel_channel(pp, xi->blue_mask);
 				unsigned char a = (unsigned char)(((unsigned int)r + (unsigned int)g + (unsigned int)b) / 3u);
-				if (a == 0 && pp != 0 && !font_fallback) {
+				if (a == 0 && pp != 0) {
 					a = 255;
 				}
 				int tx = x + ix;
