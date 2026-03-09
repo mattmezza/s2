@@ -178,6 +178,39 @@ static void text_box_metrics(int x,
 			     int *bh);
 static void set_tool(struct editor_state *ed, enum tool tool);
 
+static void
+build_font_pattern(char *out, size_t outlen, int px)
+{
+	char base[160];
+	const char *src;
+	char *size_pos;
+	char *comma;
+	char *end;
+
+	if (!out || outlen == 0) {
+		return;
+	}
+	src = (font_name && *font_name) ? font_name : "monospace:size=16";
+	snprintf(base, sizeof(base), "%s", src);
+	size_pos = strstr(base, ":size=");
+	if (size_pos) {
+		*size_pos = '\0';
+	}
+	comma = strchr(base, ',');
+	if (comma) {
+		*comma = '\0';
+	}
+	end = base + strlen(base);
+	while (end > base && (end[-1] == ' ' || end[-1] == '\t')) {
+		end--;
+		*end = '\0';
+	}
+	if (base[0] == '\0') {
+		snprintf(base, sizeof(base), "monospace");
+	}
+	snprintf(out, outlen, "%s:size=%d", base, px);
+}
+
 static int
 number_radius_for_scale(int scale)
 {
@@ -675,10 +708,7 @@ pixel_channel(unsigned long p, unsigned long mask)
 static XftFont *
 font_for_scale(struct editor_state *ed, int scale)
 {
-	char base[160];
 	char pat[192];
-	const char *src;
-	char *size_pos;
 
 	if (scale < 1) {
 		scale = 1;
@@ -689,13 +719,7 @@ font_for_scale(struct editor_state *ed, int scale)
 	if (ed->xftfont_tool[scale]) {
 		return ed->xftfont_tool[scale];
 	}
-	src = (font_name && *font_name) ? font_name : "monospace";
-	snprintf(base, sizeof(base), "%s", src);
-	size_pos = strstr(base, ":size=");
-	if (size_pos) {
-		*size_pos = '\0';
-	}
-	snprintf(pat, sizeof(pat), "%s:size=%d", base, 8 * scale);
+	build_font_pattern(pat, sizeof(pat), 8 * scale);
 	ed->xftfont_tool[scale] = XftFontOpenName(ed->dpy, ed->screen, pat);
 	if (!ed->xftfont_tool[scale]) {
 		ed->xftfont_tool[scale] = ed->xftfont_status;
@@ -2585,7 +2609,11 @@ x11_setup(struct editor_state *ed)
 	}
 
 	ed->xftdraw = NULL;
-	ed->xftfont_status = XftFontOpenName(ed->dpy, ed->screen, font_name);
+	{
+		char pat[192];
+		build_font_pattern(pat, sizeof(pat), 14);
+		ed->xftfont_status = XftFontOpenName(ed->dpy, ed->screen, pat);
+	}
 	if (!ed->xftfont_status) {
 		ed->xftfont_status = XftFontOpenName(ed->dpy, ed->screen, "monospace:size=14");
 	}
