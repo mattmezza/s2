@@ -38,6 +38,14 @@
 #define default_blur_radius 2
 #endif
 
+#ifndef text_fill_padding
+#define text_fill_padding 1
+#endif
+
+#ifndef text_fill_corner_radius
+#define text_fill_corner_radius 2
+#endif
+
 enum tool {
 	TOOL_SELECT = 0,
 	TOOL_ARROW,
@@ -174,6 +182,7 @@ struct editor_state {
 
 static int push_action(struct action_stack *st, const struct action *in);
 static int text_bg_padding_for_scale(int scale);
+static int text_bg_radius_for_scale(int scale);
 static void text_box_metrics(const struct editor_state *ed,
 			     int x,
 			     int y,
@@ -984,7 +993,63 @@ text_bg_padding_for_scale(int scale)
 	if (scale < 1) {
 		scale = 1;
 	}
-	return scale;
+	return text_fill_padding * scale;
+}
+
+static int
+text_bg_radius_for_scale(int scale)
+{
+	if (scale < 1) {
+		scale = 1;
+	}
+	return text_fill_corner_radius * scale;
+}
+
+static void
+draw_fill_rounded_rect(struct image *img, int x, int y, int w, int h, int radius, unsigned int color)
+{
+	int ix;
+	int iy;
+
+	if (!img || !img->pixels || w <= 0 || h <= 0) {
+		return;
+	}
+	if (radius < 0) {
+		radius = 0;
+	}
+	if (radius > w / 2) {
+		radius = w / 2;
+	}
+	if (radius > h / 2) {
+		radius = h / 2;
+	}
+	for (iy = 0; iy < h; iy++) {
+		for (ix = 0; ix < w; ix++) {
+			int draw = 1;
+			if (radius > 0) {
+				if (ix < radius && iy < radius) {
+					int dx = radius - 1 - ix;
+					int dy = radius - 1 - iy;
+					draw = (dx * dx + dy * dy <= radius * radius);
+				} else if (ix >= w - radius && iy < radius) {
+					int dx = ix - (w - radius);
+					int dy = radius - 1 - iy;
+					draw = (dx * dx + dy * dy <= radius * radius);
+				} else if (ix < radius && iy >= h - radius) {
+					int dx = radius - 1 - ix;
+					int dy = iy - (h - radius);
+					draw = (dx * dx + dy * dy <= radius * radius);
+				} else if (ix >= w - radius && iy >= h - radius) {
+					int dx = ix - (w - radius);
+					int dy = iy - (h - radius);
+					draw = (dx * dx + dy * dy <= radius * radius);
+				}
+			}
+			if (draw) {
+				img_put_px(img, x + ix, y + iy, color);
+			}
+		}
+	}
 }
 
 static void
@@ -1207,15 +1272,11 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 				int by;
 				int bw;
 				int bh;
-				int x;
-				int y;
+				int radius;
 				unsigned int bg = inverse_color(a->color);
-			text_box_metrics(ed, a->x0, a->y0, a->text, scale, 1, &bx, &by, &bw, &bh);
-				for (y = 0; y < bh; y++) {
-					for (x = 0; x < bw; x++) {
-						img_put_px(img, bx + x, by + y, bg);
-					}
-				}
+				text_box_metrics(ed, a->x0, a->y0, a->text, scale, 1, &bx, &by, &bw, &bh);
+				radius = text_bg_radius_for_scale(scale);
+				draw_fill_rounded_rect(img, bx, by, bw, bh, radius, bg);
 			}
 			draw_text_xft(ed, img, a->x0, a->y0, a->text ? a->text : "", scale, a->color);
 		}
@@ -1648,8 +1709,7 @@ render_frame(struct editor_state *ed)
 			int by;
 			int bw;
 			int bh;
-			int x;
-			int y;
+			int radius;
 			unsigned int bg = inverse_color(ed->color);
 			text_box_metrics(ed,
 			                 ed->text_x,
@@ -1661,11 +1721,8 @@ render_frame(struct editor_state *ed)
 			                 &by,
 			                 &bw,
 			                 &bh);
-			for (y = 0; y < bh; y++) {
-				for (x = 0; x < bw; x++) {
-					img_put_px(&ed->preview, bx + x, by + y, bg);
-				}
-			}
+			radius = text_bg_radius_for_scale(ed->text_scale > 0 ? ed->text_scale : 1);
+			draw_fill_rounded_rect(&ed->preview, bx, by, bw, bh, radius, bg);
 		}
 		draw_text_xft(ed, &ed->preview, ed->text_x, ed->text_y, ed->text_buf, ed->text_scale, ed->color);
 		ed->raster_dirty = 1;
@@ -2013,8 +2070,9 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 			int bw;
 			int bh;
 			int scale = a->p0 > 0 ? a->p0 : 1;
+			int extra = scale * 2 + TEXT_RENDER_PAD;
 			text_box_metrics(ed, a->x0, a->y0, a->text ? a->text : "", scale, a->p0 < 0, &bx, &by, &bw, &bh);
-			return x >= bx - pad && x <= bx + bw + pad && y >= by - pad && y <= by + bh + pad;
+			return x >= bx - pad - extra && x <= bx + bw + pad + extra && y >= by - pad - extra && y <= by + bh + pad + extra;
 		}
 	default:
 		return 0;

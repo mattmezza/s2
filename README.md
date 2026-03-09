@@ -143,3 +143,8 @@ UI behavior:
 - Editor enforces a minimum usable window size so very small captures remain operable.
 
 `config.def.h` now includes `font_name` for text rendering defaults.
+
+Text fill styling in `config.def.h`:
+
+- `text_fill_padding`: background padding around filled text
+- `text_fill_corner_radius`: rounded corner radius for filled text background

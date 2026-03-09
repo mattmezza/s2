@@ -35,4 +35,10 @@ static const unsigned int selection_bbox_color = 0x00ffffu;
 static const int thickness_presets[] = { 1, 2, 3, 5, 8 };
 
 /* text rendering */
-static const char *font_name = "monospace:size=16";
+static const char *font_name = "Noto Sans, Noto Color Emoji:size=16";
+static const int text_fill_padding = 1;
+static const int text_fill_corner_radius = 2;
+//static const char *font_name = "DejaVu Serif:size=16";
+/* if you don't care about emojis you can use a cool monospace defaul
+ * static const char *font_name = "monospace:size=16";
+ */
