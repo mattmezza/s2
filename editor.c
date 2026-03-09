@@ -494,17 +494,6 @@ recalc_layout(struct editor_state *ed)
 	if (ed->canvas_y < 0) ed->canvas_y = 0;
 }
 
-static void
-draw_cursor_overlay(struct image *img, int cx, int cy)
-{
-	int i;
-	for (i = -8; i <= 8; i++) {
-		img_put_px(img, cx + i, cy, 0xffffff);
-		img_put_px(img, cx, cy + i, 0xffffff);
-	}
-	img_put_px(img, cx, cy, 0x000000);
-}
-
 static int
 canvas_to_image_x(const struct editor_state *ed, int x)
 {
@@ -1369,23 +1358,6 @@ render_frame(struct editor_state *ed)
 		ed->raster_dirty = 1;
 	}
 
-	if (ed->selected_idx >= 0 && (size_t)ed->selected_idx < ed->actions.cursor) {
-		struct action *sa = &ed->actions.items[ed->selected_idx];
-		int minx;
-		int miny;
-		int maxx;
-		int maxy;
-		action_bounds(sa, &minx, &miny, &maxx, &maxy);
-		if (ed->drag_active) {
-			minx += ed->drag_dx;
-			maxx += ed->drag_dx;
-			miny += ed->drag_dy;
-			maxy += ed->drag_dy;
-		}
-		draw_rect_guide(&ed->preview, minx, miny, maxx, maxy, selection_bbox_color);
-	}
-
-	draw_cursor_overlay(&ed->preview, ed->cursor_x, ed->cursor_y);
 	if (ed->raster_dirty) {
 		render_to_ximg(ed, &ed->preview);
 		ed->raster_dirty = 0;
@@ -1415,6 +1387,36 @@ render_frame(struct editor_state *ed)
 	          (unsigned int)ed->win_h,
 	          0,
 	          0);
+	if (ed->selected_idx >= 0 && (size_t)ed->selected_idx < ed->actions.cursor) {
+		struct action *sa = &ed->actions.items[ed->selected_idx];
+		int minx;
+		int miny;
+		int maxx;
+		int maxy;
+		int sx0;
+		int sy0;
+		int sx1;
+		int sy1;
+		action_bounds(sa, &minx, &miny, &maxx, &maxy);
+		if (ed->drag_active) {
+			minx += ed->drag_dx;
+			maxx += ed->drag_dx;
+			miny += ed->drag_dy;
+			maxy += ed->drag_dy;
+		}
+		sx0 = ed->canvas_x + (int)(minx * ed->scale);
+		sy0 = ed->canvas_y + (int)(miny * ed->scale);
+		sx1 = ed->canvas_x + (int)(maxx * ed->scale);
+		sy1 = ed->canvas_y + (int)(maxy * ed->scale);
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
+		XDrawRectangle(ed->dpy,
+		               ed->win,
+		               ed->gc,
+		               sx0,
+		               sy0,
+		               (unsigned int)(sx1 >= sx0 ? (sx1 - sx0) : (sx0 - sx1)),
+		               (unsigned int)(sy1 >= sy0 ? (sy1 - sy0) : (sy0 - sy1)));
+	}
 	if (ed->anchor_active && (ed->tool == TOOL_CIRCLE || ed->tool == TOOL_PIXELATE || ed->tool == TOOL_BLUR)) {
 		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
 		int y0 = ed->canvas_y + (int)(ed->anchor_y * ed->scale);
@@ -1461,6 +1463,12 @@ set_tool(struct editor_state *ed, enum tool tool)
 {
 	if (!ed) {
 		return;
+	}
+	if (ed->tool == TOOL_SELECT && tool != TOOL_SELECT) {
+		ed->selected_idx = -1;
+		ed->drag_active = 0;
+		ed->drag_dx = 0;
+		ed->drag_dy = 0;
 	}
 	if (ed->tool == TOOL_TEXT && ed->text_mode) {
 		commit_text_input(ed);
@@ -2431,7 +2439,6 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 		ed->drag_origin_y = ed->cursor_y;
 		ed->drag_dx = 0;
 		ed->drag_dy = 0;
-		ed->raster_dirty = 1;
 		return;
 	}
 	if (ed->tool == TOOL_PEN) {
@@ -2544,7 +2551,6 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 		if (dx != 0 || dy != 0) {
 			ed->drag_dx = dx;
 			ed->drag_dy = dy;
-			ed->raster_dirty = 1;
 		}
 	}
 	if (ed->tool == TOOL_PEN && ed->pen_active) {
