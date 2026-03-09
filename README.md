@@ -1,5 +1,7 @@
 # s2
 
+![s2 cover](cover-og.png)
+
 `s2` (simple screenshot / suckless screenshots) is a keyboard-first screenshot annotation and redaction tool.
 
 ## Status

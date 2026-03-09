@@ -4,6 +4,7 @@ s2
 
 # local/runtime outputs
 *.png
+!cover-og.png
 core
 core.*
 
