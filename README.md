@@ -84,7 +84,7 @@ maim -s | s2 -i -
 - `Ctrl+C`: copy rendered image to clipboard and exit success
 - `Ctrl+Y`: copy current image to clipboard
 - `Ctrl+V`: paste clipboard text only (text MIME); starts/appends text input
-- `Ctrl+S`: save to timestamped file in cwd (`YYYY-MM-DDTHHMM.png`)
+- `Ctrl+S`: save timestamped file to configured save directory (`YYYY-MM-DDTHHMM.png`)
 - `Enter`: save and exit
 - `q` or `Esc`: quit/cancel (returns non-zero)
 - `s`: selection tool

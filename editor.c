@@ -1982,6 +1982,7 @@ static int
 build_timestamp_path(const struct app_config *cfg, char *out, size_t outlen)
 {
 	char name[64];
+	char dirbuf[PATH_MAX];
 	const char *dir;
 
 	if (!out || outlen < 64) {
@@ -1994,6 +1995,17 @@ build_timestamp_path(const struct app_config *cfg, char *out, size_t outlen)
 	                                                                           default_save_directory;
 	if (!dir || !*dir) {
 		dir = ".";
+	}
+	if (dir[0] == '~' && (dir[1] == '\0' || dir[1] == '/')) {
+		const char *home = getenv("HOME");
+		if (home && *home) {
+			if (dir[1] == '\0') {
+				snprintf(dirbuf, sizeof(dirbuf), "%s", home);
+			} else {
+				snprintf(dirbuf, sizeof(dirbuf), "%s/%s", home, dir + 2);
+			}
+			dir = dirbuf;
+		}
 	}
 	if (snprintf(out, outlen, "%s/%s", dir, name) >= (int)outlen) {
 		return -1;
