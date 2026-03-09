@@ -15,7 +15,7 @@ make
 ### Dependencies (Arch Linux)
 
 ```sh
-sudo pacman -S libx11 libxft freetype2 libpng xclip maim slop
+sudo pacman -S libx11 libxft freetype2 libpng pango cairo harfbuzz xclip maim slop
 ```
 
 ### Dependencies (generic Linux)
@@ -24,6 +24,7 @@ Install equivalents for:
 
 - X11 development headers/libs (`libX11`)
 - Xft + FreeType (`libXft`, `freetype2`)
+- text shaping/rendering stack (`pango`, `cairo`, `harfbuzz`)
 - PNG library (`libpng`)
 - clipboard helper (`xclip`)
 - optional capture workflow tools (`maim`, `slop`)

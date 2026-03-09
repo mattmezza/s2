@@ -4,6 +4,9 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <cairo/cairo.h>
+#include <cairo/cairo-ft.h>
+#include <pango/pangocairo.h>
 #include <ctype.h>
 #include <locale.h>
 #include <limits.h>
@@ -167,9 +170,9 @@ struct editor_state {
 };
 
 #define TEXT_RENDER_PAD 4
+#define TEXT_SCALE_PX 8
 
 static int push_action(struct action_stack *st, const struct action *in);
-static XftFont *font_for_scale(struct editor_state *ed, int scale);
 static int text_bg_padding_for_scale(int scale);
 static void text_box_metrics(const struct editor_state *ed,
 			     int x,
@@ -235,187 +238,214 @@ build_font_pattern_primary(char *out, size_t outlen, int px)
 }
 
 static void
-build_font_pattern_secondary(char *out, size_t outlen, int px)
+build_font_css_family(char *out, size_t outlen)
 {
 	char base[192];
 	char *size_pos;
-	char *comma;
-	char *start;
-	char *end;
+	char *p;
 
 	if (!out || outlen == 0) {
 		return;
 	}
 	out[0] = '\0';
-	if (!font_name || !*font_name) {
-		return;
-	}
-	snprintf(base, sizeof(base), "%s", font_name);
+	snprintf(base, sizeof(base), "%s", (font_name && *font_name) ? font_name : "sans");
 	size_pos = strstr(base, ":size=");
 	if (size_pos) {
 		*size_pos = '\0';
 	}
-	comma = strchr(base, ',');
-	if (!comma) {
-		return;
+	for (p = base; *p != '\0'; p++) {
+		if (*p == ':') {
+			*p = ' ';
+		}
 	}
-	start = comma + 1;
-	while (*start == ' ' || *start == '\t') {
-		start++;
-	}
-	if (*start == '\0') {
-		return;
-	}
-	end = start + strlen(start);
-	while (end > start && (end[-1] == ' ' || end[-1] == '\t')) {
-		end--;
-		*end = '\0';
-	}
-	if (*start == '\0') {
-		return;
-	}
-	snprintf(out, outlen, "%s:size=%d", start, px);
+	snprintf(out, outlen, "%s", base);
 }
 
 static int
-utf8_next_cp(const unsigned char *s, int len, int *used, FcChar32 *cp)
+render_text_pango(const struct editor_state *ed,
+		      struct image *img,
+		      int x,
+		      int y,
+		      const char *text,
+		      int scale,
+		      unsigned int color,
+		      int measure_only,
+		      int *out_w,
+		      int *out_h)
 {
-	if (!s || len <= 0 || !used || !cp) {
-		return 0;
-	}
-	if (s[0] < 0x80u) {
-		*cp = (FcChar32)s[0];
-		*used = 1;
-		return 1;
-	}
-	if (len >= 2 && (s[0] & 0xe0u) == 0xc0u && (s[1] & 0xc0u) == 0x80u) {
-		*cp = (FcChar32)(((s[0] & 0x1fu) << 6) | (s[1] & 0x3fu));
-		*used = 2;
-		return 1;
-	}
-	if (len >= 3 && (s[0] & 0xf0u) == 0xe0u && (s[1] & 0xc0u) == 0x80u && (s[2] & 0xc0u) == 0x80u) {
-		*cp = (FcChar32)(((s[0] & 0x0fu) << 12) | ((s[1] & 0x3fu) << 6) | (s[2] & 0x3fu));
-		*used = 3;
-		return 1;
-	}
-	if (len >= 4 && (s[0] & 0xf8u) == 0xf0u && (s[1] & 0xc0u) == 0x80u && (s[2] & 0xc0u) == 0x80u &&
-	    (s[3] & 0xc0u) == 0x80u) {
-		*cp = (FcChar32)(((s[0] & 0x07u) << 18) | ((s[1] & 0x3fu) << 12) | ((s[2] & 0x3fu) << 6) |
-		                (s[3] & 0x3fu));
-		*used = 4;
-		return 1;
-	}
-	*cp = (FcChar32)'?';
-	*used = 1;
-	return 1;
-}
+	(void)ed;
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	PangoLayout *layout;
+	PangoFontDescription *desc;
+	char family[192];
+	int w_px;
+	int h_px;
+	int draw_w;
+	int draw_h;
+	double sr;
+	double sg;
+	double sb;
 
-static void
-text_metrics_xft(const struct editor_state *ed, const char *text, int scale, int *tw, int *th)
-{
-	XftFont *font;
-	XftFont *font_fallback;
-	char fallback_pat[192];
-	int text_len;
-	int i;
-	int width;
-	int height;
-	XGlyphInfo ext;
-
-	if (tw) {
-		*tw = 0;
-	}
-	if (th) {
-		*th = 0;
-	}
-	if (!text || scale < 1) {
-		if (scale < 1) {
-			scale = 1;
-		}
-	}
 	if (!text) {
 		text = "";
 	}
 	if (scale < 1) {
 		scale = 1;
 	}
-	if (!ed || !ed->dpy) {
-		int cps = 0;
-		text_len = (int)strlen(text);
-		for (i = 0; i < text_len;) {
-			int used;
-			FcChar32 cp;
-			if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
-				break;
+	w_px = 0;
+	h_px = 0;
+
+	if (!measure_only && (!img || !img->pixels || !ed)) {
+		return -1;
+	}
+
+	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	cr = cairo_create(surface);
+	if (cairo_status(cr) != CAIRO_STATUS_SUCCESS) {
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+
+	layout = pango_cairo_create_layout(cr);
+	if (!layout) {
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	pango_layout_set_text(layout, text, -1);
+	build_font_css_family(family, sizeof(family));
+	desc = pango_font_description_from_string(family);
+	if (!desc) {
+		g_object_unref(layout);
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	pango_font_description_set_absolute_size(desc, (double)(TEXT_SCALE_PX * scale) * PANGO_SCALE);
+	pango_layout_set_font_description(layout, desc);
+	pango_font_description_free(desc);
+	pango_layout_get_pixel_size(layout, &w_px, &h_px);
+
+	if (out_w) {
+		*out_w = w_px;
+	}
+	if (out_h) {
+		*out_h = h_px;
+	}
+	g_object_unref(layout);
+	cairo_destroy(cr);
+	cairo_surface_destroy(surface);
+
+	if (measure_only || w_px <= 0 || h_px <= 0) {
+		return 0;
+	}
+
+	draw_w = w_px + TEXT_RENDER_PAD * 2;
+	draw_h = h_px + TEXT_RENDER_PAD * 2;
+	if (draw_w <= 0 || draw_h <= 0) {
+		return 0;
+	}
+
+	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, draw_w, draw_h);
+	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	cr = cairo_create(surface);
+	if (cairo_status(cr) != CAIRO_STATUS_SUCCESS) {
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
+	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+	layout = pango_cairo_create_layout(cr);
+	if (!layout) {
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	pango_layout_set_text(layout, text, -1);
+	build_font_css_family(family, sizeof(family));
+	desc = pango_font_description_from_string(family);
+	if (!desc) {
+		g_object_unref(layout);
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return -1;
+	}
+	pango_font_description_set_absolute_size(desc, (double)(TEXT_SCALE_PX * scale) * PANGO_SCALE);
+	pango_layout_set_font_description(layout, desc);
+	pango_font_description_free(desc);
+
+	if (w_px > 0 && h_px > 0) {
+		int ix;
+		int iy;
+		unsigned char *src;
+		int stride;
+
+		sr = (double)((color >> 16) & 0xff) / 255.0;
+		sg = (double)((color >> 8) & 0xff) / 255.0;
+		sb = (double)(color & 0xff) / 255.0;
+		cairo_set_source_rgb(cr, sr, sg, sb);
+		cairo_move_to(cr, (double)TEXT_RENDER_PAD, (double)TEXT_RENDER_PAD);
+		pango_cairo_show_layout(cr, layout);
+		cairo_surface_flush(surface);
+		src = cairo_image_surface_get_data(surface);
+		stride = cairo_image_surface_get_stride(surface);
+		for (iy = 0; iy < draw_h; iy++) {
+			for (ix = 0; ix < draw_w; ix++) {
+				int tx = x + ix;
+				int ty = y + iy;
+				unsigned char *sp = src + (size_t)iy * (size_t)stride + (size_t)ix * 4u;
+				unsigned char b = sp[0];
+				unsigned char g = sp[1];
+				unsigned char r = sp[2];
+				unsigned char a = sp[3];
+				if (a > 8 && tx >= 0 && ty >= 0 && tx < img->width && ty < img->height) {
+					unsigned char *dst = img->pixels + ((size_t)ty * (size_t)img->width + (size_t)tx) * 4u;
+					dst[0] = (unsigned char)(((unsigned int)dst[0] * (255u - a) + (unsigned int)r * a) / 255u);
+					dst[1] = (unsigned char)(((unsigned int)dst[1] * (255u - a) + (unsigned int)g * a) / 255u);
+					dst[2] = (unsigned char)(((unsigned int)dst[2] * (255u - a) + (unsigned int)b * a) / 255u);
+					dst[3] = 0xff;
+				}
 			}
-			(void)cp;
-			cps++;
-			i += used;
 		}
+	}
+
+	g_object_unref(layout);
+	cairo_destroy(cr);
+	cairo_surface_destroy(surface);
+	return 0;
+}
+
+static void
+text_metrics_xft(const struct editor_state *ed, const char *text, int scale, int *tw, int *th)
+{
+	if (render_text_pango(ed, NULL, 0, 0, text, scale, 0, 1, tw, th) != 0) {
+		int len;
+		if (!text) {
+			text = "";
+		}
+		if (scale < 1) {
+			scale = 1;
+		}
+		len = (int)strlen(text);
 		if (tw) {
-			*tw = cps * 6 * scale;
+			*tw = len * 6 * scale;
 		}
 		if (th) {
 			*th = 8 * scale;
 		}
-		return;
-	}
-
-	font = font_for_scale((struct editor_state *)ed, scale);
-	if (!font) {
-		int cps = 0;
-		text_len = (int)strlen(text);
-		for (i = 0; i < text_len;) {
-			int used;
-			FcChar32 cp;
-			if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
-				break;
-			}
-			(void)cp;
-			cps++;
-			i += used;
-		}
-		if (tw) {
-			*tw = cps * 6 * scale;
-		}
-		if (th) {
-			*th = 8 * scale;
-		}
-		return;
-	}
-
-	font_fallback = NULL;
-	build_font_pattern_secondary(fallback_pat, sizeof(fallback_pat), 8 * scale);
-	if (fallback_pat[0] != '\0') {
-		font_fallback = XftFontOpenName(ed->dpy, ed->screen, fallback_pat);
-	}
-
-	width = 0;
-	height = font->ascent + font->descent;
-	text_len = (int)strlen(text);
-	for (i = 0; i < text_len;) {
-		FcChar32 cp;
-		int used;
-		XftFont *f;
-		if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
-			break;
-		}
-		f = font;
-		if (font_fallback && !XftCharExists(ed->dpy, font, cp) && XftCharExists(ed->dpy, font_fallback, cp)) {
-			f = font_fallback;
-		}
-		XftTextExtentsUtf8(ed->dpy, f, (const FcChar8 *)text + i, used, &ext);
-		width += ext.xOff;
-		i += used;
-	}
-	if (font_fallback) {
-		XftFontClose(ed->dpy, font_fallback);
-	}
-	if (tw) {
-		*tw = width;
-	}
-	if (th) {
-		*th = height;
 	}
 }
 
@@ -866,79 +896,6 @@ draw_rect_guide(struct image *img, int x0, int y0, int x1, int y1, unsigned int 
 }
 
 
-static unsigned int
-mask_shift(unsigned long mask)
-{
-	unsigned int s = 0;
-	if (mask == 0) {
-		return 0;
-	}
-	while ((mask & 1ul) == 0) {
-		s++;
-		mask >>= 1;
-	}
-	return s;
-}
-
-static unsigned int
-mask_bits(unsigned long mask)
-{
-	unsigned int n = 0;
-	while (mask) {
-		n += (unsigned int)(mask & 1ul);
-		mask >>= 1;
-	}
-	return n;
-}
-
-static unsigned char
-pixel_channel(unsigned long p, unsigned long mask)
-{
-	unsigned int shift;
-	unsigned int bits;
-	unsigned long v;
-
-	if (mask == 0) {
-		return 0;
-	}
-	shift = mask_shift(mask);
-	bits = mask_bits(mask);
-	v = (p & mask) >> shift;
-	if (bits >= 8) {
-		return (unsigned char)(v >> (bits - 8));
-	}
-	if (bits == 0) {
-		return 0;
-	}
-	return (unsigned char)((v * 255ul) / ((1ul << bits) - 1ul));
-}
-
-static XftFont *
-font_for_scale(struct editor_state *ed, int scale)
-{
-	char pat[192];
-
-	if (scale < 1) {
-		scale = 1;
-	}
-	if (scale > 8) {
-		scale = 8;
-	}
-	if (ed->xftfont_tool[scale]) {
-		return ed->xftfont_tool[scale];
-	}
-	build_font_pattern_primary(pat, sizeof(pat), 8 * scale);
-	ed->xftfont_tool[scale] = XftFontOpenName(ed->dpy, ed->screen, pat);
-	if (!ed->xftfont_tool[scale]) {
-		build_font_pattern(pat, sizeof(pat), 8 * scale);
-		ed->xftfont_tool[scale] = XftFontOpenName(ed->dpy, ed->screen, pat);
-	}
-	if (!ed->xftfont_tool[scale]) {
-		ed->xftfont_tool[scale] = ed->xftfont_status;
-	}
-	return ed->xftfont_tool[scale];
-}
-
 static void
 action_bounds(const struct editor_state *ed, const struct action *a, int *minx, int *miny, int *maxx, int *maxy)
 {
@@ -1184,155 +1141,8 @@ reset_pen_input(struct editor_state *ed)
 static void
 draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const char *text, int scale, unsigned int color)
 {
-	XftFont *font;
-	XftFont *font_fallback = NULL;
-	XGlyphInfo ext;
-	int w;
-	int h;
-	int baseline;
-	Pixmap px;
-	GC pgc;
-	XftDraw *dr;
-	XRenderColor white;
-	XftColor xc;
-	XImage *xi;
-	int ix;
-	int iy;
-	unsigned int painted;
-	int i;
-	int text_len;
-	char fallback_pat[192];
-
-	if (!ed || !img || !text || !*text) {
-		return;
-	}
-	font = font_for_scale(ed, scale);
-	if (!font) {
+	if (render_text_pango(ed, img, x, y, text, scale, color, 0, NULL, NULL) != 0) {
 		draw_text(img, x, y, text, scale, color);
-		return;
-	}
-	text_len = (int)strlen(text);
-	build_font_pattern_secondary(fallback_pat, sizeof(fallback_pat), 8 * scale);
-	if (fallback_pat[0] != '\0') {
-		font_fallback = XftFontOpenName(ed->dpy, ed->screen, fallback_pat);
-	}
-	w = 0;
-	for (i = 0; i < text_len;) {
-		FcChar32 cp;
-		int used;
-		XftFont *f;
-		if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
-			break;
-		}
-		f = font;
-		if (font_fallback && !XftCharExists(ed->dpy, font, cp) && XftCharExists(ed->dpy, font_fallback, cp)) {
-			f = font_fallback;
-		}
-		XftTextExtentsUtf8(ed->dpy, f, (const FcChar8 *)text + i, used, &ext);
-		w += ext.xOff;
-		i += used;
-	}
-	if (w < 1) {
-		w = 8;
-	}
-	w += TEXT_RENDER_PAD * 2;
-	h = font->ascent + font->descent + TEXT_RENDER_PAD * 2;
-	if (w <= 0 || h <= 0) {
-		if (font_fallback) {
-			XftFontClose(ed->dpy, font_fallback);
-		}
-		return;
-	}
-
-	px = XCreatePixmap(ed->dpy, ed->win, (unsigned int)w, (unsigned int)h, (unsigned int)DefaultDepth(ed->dpy, ed->screen));
-	pgc = XCreateGC(ed->dpy, px, 0, NULL);
-	XSetForeground(ed->dpy, pgc, 0x000000);
-	XFillRectangle(ed->dpy, px, pgc, 0, 0, (unsigned int)w, (unsigned int)h);
-
-	dr = XftDrawCreate(ed->dpy, px, DefaultVisual(ed->dpy, ed->screen), ed->cmap);
-	if (!dr) {
-		XFreeGC(ed->dpy, pgc);
-		XFreePixmap(ed->dpy, px);
-		draw_text(img, x, y, text, scale, color);
-		return;
-	}
-
-	white.red = 65535;
-	white.green = 65535;
-	white.blue = 65535;
-	white.alpha = 65535;
-	if (!XftColorAllocValue(ed->dpy, DefaultVisual(ed->dpy, ed->screen), ed->cmap, &white, &xc)) {
-		XftDrawDestroy(dr);
-		XFreeGC(ed->dpy, pgc);
-		XFreePixmap(ed->dpy, px);
-		draw_text(img, x, y, text, scale, color);
-		return;
-	}
-
-	{
-		int pen_x = TEXT_RENDER_PAD;
-		baseline = font->ascent + TEXT_RENDER_PAD;
-		for (i = 0; i < text_len;) {
-			FcChar32 cp;
-			int used;
-			XftFont *f;
-			if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
-				break;
-			}
-			f = font;
-			if (font_fallback && !XftCharExists(ed->dpy, font, cp) && XftCharExists(ed->dpy, font_fallback, cp)) {
-				f = font_fallback;
-			}
-			XftDrawStringUtf8(dr, &xc, f, pen_x, baseline, (const FcChar8 *)text + i, used);
-			XftTextExtentsUtf8(ed->dpy, f, (const FcChar8 *)text + i, used, &ext);
-			pen_x += ext.xOff;
-			i += used;
-		}
-	}
-	XftColorFree(ed->dpy, DefaultVisual(ed->dpy, ed->screen), ed->cmap, &xc);
-
-	painted = 0;
-	XSync(ed->dpy, False);
-	xi = XGetImage(ed->dpy, px, 0, 0, (unsigned int)w, (unsigned int)h, AllPlanes, ZPixmap);
-	if (xi) {
-		for (iy = 0; iy < h; iy++) {
-			for (ix = 0; ix < w; ix++) {
-				unsigned long pp = XGetPixel(xi, ix, iy);
-				unsigned char r = pixel_channel(pp, xi->red_mask);
-				unsigned char g = pixel_channel(pp, xi->green_mask);
-				unsigned char b = pixel_channel(pp, xi->blue_mask);
-				unsigned char a = (unsigned char)(((unsigned int)r + (unsigned int)g + (unsigned int)b) / 3u);
-				if (a == 0 && pp != 0) {
-					a = 255;
-				}
-				int tx = x + ix;
-				int ty = y + iy;
-				if (a > 8 && tx >= 0 && ty >= 0 && tx < img->width && ty < img->height) {
-					unsigned char *dst = img->pixels + ((size_t)ty * (size_t)img->width + (size_t)tx) * 4;
-					unsigned int sr = (color >> 16) & 0xff;
-					unsigned int sg = (color >> 8) & 0xff;
-					unsigned int sb = color & 0xff;
-					dst[0] = (unsigned char)(((unsigned int)dst[0] * (255u - a) + sr * a) / 255u);
-					dst[1] = (unsigned char)(((unsigned int)dst[1] * (255u - a) + sg * a) / 255u);
-					dst[2] = (unsigned char)(((unsigned int)dst[2] * (255u - a) + sb * a) / 255u);
-					dst[3] = 0xff;
-					painted++;
-				}
-			}
-		}
-		XDestroyImage(xi);
-		if (painted == 0) {
-			draw_text(img, x, y, text, scale, color);
-		}
-	} else {
-		draw_text(img, x, y, text, scale, color);
-	}
-
-	XftDrawDestroy(dr);
-	XFreeGC(ed->dpy, pgc);
-	XFreePixmap(ed->dpy, px);
-	if (font_fallback) {
-		XftFontClose(ed->dpy, font_fallback);
 	}
 }
 
