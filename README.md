@@ -48,7 +48,7 @@ Install destination defaults to `/usr/local/bin/s2` and can be changed in `confi
 - Edit `config.h` for local customization.
 - Save defaults can be customized in `config.h` with `default_save_directory`.
 - Tool defaults can be customized in `config.h` with `default_palette_index`, `default_thickness_index`, and `default_text_scale`.
-- UI defaults can be customized in `config.h` with `S2_DEFAULT_TOOL_INDEX` and `S2_SELECTION_BBOX_COLOR`.
+- UI defaults can be customized in `config.h` with `default_tool_index` and `selection_bbox_color`.
 - Before reinstalling after upstream changes, remove local `config.h` so defaults can refresh:
 
 ```sh

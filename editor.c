@@ -18,12 +18,12 @@
 
 #include "config.h"
 
-#ifndef S2_DEFAULT_TOOL_INDEX
-#define S2_DEFAULT_TOOL_INDEX 1
+#ifndef default_tool_index
+#define default_tool_index 1
 #endif
 
-#ifndef S2_SELECTION_BBOX_COLOR
-#define S2_SELECTION_BBOX_COLOR 0x00ffffu
+#ifndef selection_bbox_color
+#define selection_bbox_color 0x00ffffu
 #endif
 
 enum tool {
@@ -152,6 +152,16 @@ struct editor_state {
 };
 
 static int push_action(struct action_stack *st, const struct action *in);
+static int text_bg_padding_for_scale(int scale);
+static void text_box_metrics(int x,
+			     int y,
+			     const char *text,
+			     int scale,
+			     int with_fill,
+			     int *bx,
+			     int *by,
+			     int *bw,
+			     int *bh);
 
 static int
 contains_ci(const char *s, const char *needle)
@@ -670,11 +680,20 @@ action_bounds(const struct action *a, int *minx, int *miny, int *maxx, int *maxy
 	x1 = a->x0 > a->x1 ? a->x0 : a->x1;
 	y1 = a->y0 > a->y1 ? a->y0 : a->y1;
 	if (a->type == ACTION_TEXT) {
-		int tw = a->text ? (int)strlen(a->text) * 6 * (a->p0 > 0 ? a->p0 : 1) : 0;
+		int bx;
+		int by;
+		int bw;
+		int bh;
+		int scale = a->p0 < 0 ? -a->p0 : a->p0;
 		x0 = a->x0;
 		y0 = a->y0;
-		x1 = a->x0 + tw;
-		y1 = a->y0 + 8 * (a->p0 > 0 ? a->p0 : 1);
+		x1 = a->x0;
+		y1 = a->y0;
+		text_box_metrics(a->x0, a->y0, a->text, scale, a->p0 < 0, &bx, &by, &bw, &bh);
+		x0 = bx;
+		y0 = by;
+		x1 = bx + bw;
+		y1 = by + bh;
 	} else if (a->type == ACTION_PEN && a->pen_points && a->pen_len > 0) {
 		x0 = x1 = a->pen_points[0];
 		y0 = y1 = a->pen_points[1];
@@ -713,6 +732,42 @@ draw_pen_points(struct image *img, const int *points, int len, int thickness, un
 		          points[i * 2 + 1],
 		          thickness,
 		          color);
+	}
+}
+
+static int
+text_bg_padding_for_scale(int scale)
+{
+	if (scale < 1) {
+		scale = 1;
+	}
+	return scale;
+}
+
+static void
+text_box_metrics(int x, int y, const char *text, int scale, int with_fill, int *bx, int *by, int *bw, int *bh)
+{
+	int tw;
+	int th;
+	int pad;
+
+	if (scale < 1) {
+		scale = 1;
+	}
+	tw = text ? (int)strlen(text) * 6 * scale : 0;
+	th = 8 * scale;
+	pad = with_fill ? text_bg_padding_for_scale(scale) : 0;
+	if (bx) {
+		*bx = x - pad;
+	}
+	if (by) {
+		*by = y - pad;
+	}
+	if (bw) {
+		*bw = tw + pad * 2;
+	}
+	if (bh) {
+		*bh = th + pad * 2;
 	}
 }
 
@@ -927,14 +982,17 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 				scale = 1;
 			}
 			if (a->p0 < 0 && a->text) {
-				int tw = (int)strlen(a->text) * 6 * scale;
-				int th = 8 * scale;
+				int bx;
+				int by;
+				int bw;
+				int bh;
 				int x;
 				int y;
 				unsigned int bg = inverse_color(a->color);
-				for (y = 0; y < th; y++) {
-					for (x = 0; x < tw; x++) {
-						img_put_px(img, a->x0 + x, a->y0 + y, bg);
+				text_box_metrics(a->x0, a->y0, a->text, scale, 1, &bx, &by, &bw, &bh);
+				for (y = 0; y < bh; y++) {
+					for (x = 0; x < bw; x++) {
+						img_put_px(img, bx + x, by + y, bg);
 					}
 				}
 			}
@@ -1280,14 +1338,25 @@ render_frame(struct editor_state *ed)
 
 	if (ed->text_mode && ed->text_len > 0) {
 		if (ed->fill_mode) {
-			int tw = ed->text_len * 6 * (ed->text_scale > 0 ? ed->text_scale : 1);
-			int th = 8 * (ed->text_scale > 0 ? ed->text_scale : 1);
+			int bx;
+			int by;
+			int bw;
+			int bh;
 			int x;
 			int y;
 			unsigned int bg = inverse_color(ed->color);
-			for (y = 0; y < th; y++) {
-				for (x = 0; x < tw; x++) {
-					img_put_px(&ed->preview, ed->text_x + x, ed->text_y + y, bg);
+			text_box_metrics(ed->text_x,
+			                 ed->text_y,
+			                 ed->text_buf,
+			                 ed->text_scale > 0 ? ed->text_scale : 1,
+			                 1,
+			                 &bx,
+			                 &by,
+			                 &bw,
+			                 &bh);
+			for (y = 0; y < bh; y++) {
+				for (x = 0; x < bw; x++) {
+					img_put_px(&ed->preview, bx + x, by + y, bg);
 				}
 			}
 		}
@@ -1313,7 +1382,7 @@ render_frame(struct editor_state *ed)
 			miny += ed->drag_dy;
 			maxy += ed->drag_dy;
 		}
-		draw_rect_guide(&ed->preview, minx, miny, maxx, maxy, S2_SELECTION_BBOX_COLOR);
+		draw_rect_guide(&ed->preview, minx, miny, maxx, maxy, selection_bbox_color);
 	}
 
 	draw_cursor_overlay(&ed->preview, ed->cursor_x, ed->cursor_y);
@@ -2510,7 +2579,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 	memset(&ed, 0, sizeof(ed));
 	ed.cfg = cfg;
 	ed.img = img;
-	ed.tool = tool_from_config_value(S2_DEFAULT_TOOL_INDEX);
+	ed.tool = tool_from_config_value(default_tool_index);
 	{
 		size_t pn = sizeof(palette) / sizeof(palette[0]);
 		size_t tn = sizeof(thickness_presets) / sizeof(thickness_presets[0]);

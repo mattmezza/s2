@@ -25,8 +25,9 @@ static const int default_text_scale = 7;
 static const int default_highlight_strength = 30;
 
 /* UI defaults */
-#define S2_DEFAULT_TOOL_INDEX 1
-#define S2_SELECTION_BBOX_COLOR 0x00ffffu
+/* tool index mapping: 0=select, 1=arrow, 2=line, 3=pen, 4=rect, 5=circle, 6=text, 7=highlight, 8=pixelate, 9=blur, 10=picker */
+static const int default_tool_index = 1;
+static const unsigned int selection_bbox_color = 0x00ffffu;
 
 /* stroke/effect presets */
 static const int thickness_presets[] = { 1, 2, 3, 5, 8 };
