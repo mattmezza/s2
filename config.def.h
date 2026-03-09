@@ -27,7 +27,7 @@ static const int default_pixelate_block = 8;
 static const int default_blur_radius = 5;
 
 /* UI defaults */
-/* tool index mapping: 0=select, 1=arrow, 2=line, 3=pen, 4=rect, 5=circle, 6=text, 7=highlight, 8=pixelate, 9=blur, 10=picker */
+/* tool index mapping: 0=select, 1=arrow, 2=line, 3=pen, 4=number, 5=rect, 6=circle, 7=text, 8=highlight, 9=pixelate, 10=blur, 11=picker */
 static const int default_tool_index = 1;
 static const unsigned int selection_bbox_color = 0x00ffffu;
 

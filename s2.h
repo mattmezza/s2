@@ -42,6 +42,7 @@ void image_free(struct image *img);
 
 int editor_run(const struct app_config *cfg, struct image *img);
 int clipboard_copy_png(const struct image *img);
+int clipboard_paste_text(char *out, size_t outlen);
 
 void draw_arrow(struct image *img,
 	       int x0,

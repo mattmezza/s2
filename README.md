@@ -82,6 +82,7 @@ maim -s | s2 -i -
 
 - `Ctrl+C`: copy rendered image to clipboard and exit success
 - `Ctrl+Y`: copy current image to clipboard
+- `Ctrl+V`: paste clipboard text only (text MIME); starts/appends text input
 - `Ctrl+S`: save to timestamped file in cwd (`YYYY-MM-DDTHHMM.png`)
 - `Enter`: save and exit
 - `q` or `Esc`: quit/cancel (returns non-zero)
@@ -94,6 +95,7 @@ maim -s | s2 -i -
 - `h`: highlight tool
 - `b`: blur tool
 - `p`: pen tool (freehand)
+- `n`: number tool (auto-incrementing markers)
 - `x`: pixelate tool
 - `c`: color picker tool (sample from image)
 - `h/j/k/l` or arrow keys: move keyboard cursor by 1px
@@ -103,7 +105,6 @@ maim -s | s2 -i -
 - `[` / `]` on highlight tool changes `hl-strength` (1..100)
 - `Ctrl+Z`: undo last action
 - `Ctrl+Shift+Z`: redo
-- `Ctrl+V` style clipboard use depends on target app supporting image MIME from X11 selections
 - `1..9`: select color from palette
 - `#`: enter hex color mode (type 6 hex chars, Enter to apply)
 - `f`: toggle fill mode (filled circles + text background with inverse contrast)
@@ -120,6 +121,7 @@ Tool flow:
 - Picker: `Space` samples color under cursor into active color.
 - Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move.
 - Pen: click-hold and drag to draw freehand using current thickness.
+- Number: each click places a filled numbered circle (`1`, `2`, `3`, ...) using current color; number size follows text-size.
 
 CLI additions:
 
@@ -133,5 +135,6 @@ UI behavior:
 - Status is shown in a dedicated bottom bar (not drawn on top of the image).
 - Window/status colors follow a best-effort light/dark preference detection from environment/X resources.
 - Window resize scales image and all objects to fit window canvas.
+- Editor enforces a minimum usable window size so very small captures remain operable.
 
 `config.def.h` now includes `font_name` for text rendering defaults.

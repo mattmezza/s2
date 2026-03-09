@@ -40,6 +40,7 @@ enum tool {
 	TOOL_ARROW,
 	TOOL_LINE,
 	TOOL_PEN,
+	TOOL_NUMBER,
 	TOOL_RECT,
 	TOOL_CIRCLE,
 	TOOL_TEXT,
@@ -53,6 +54,7 @@ enum action_type {
 	ACTION_ARROW = 0,
 	ACTION_LINE,
 	ACTION_PEN,
+	ACTION_NUMBER,
 	ACTION_RECT,
 	ACTION_CIRCLE,
 	ACTION_TEXT,
@@ -159,6 +161,7 @@ struct editor_state {
 	int text_y;
 	int toolbar_hover;
 	int show_help;
+	int number_next;
 	const struct app_config *cfg;
 };
 
@@ -173,6 +176,16 @@ static void text_box_metrics(int x,
 			     int *by,
 			     int *bw,
 			     int *bh);
+static void set_tool(struct editor_state *ed, enum tool tool);
+
+static int
+number_radius_for_scale(int scale)
+{
+	if (scale < 1) {
+		scale = 1;
+	}
+	return scale * 6 + 6;
+}
 
 static int
 contains_ci(const char *s, const char *needle)
@@ -716,6 +729,12 @@ action_bounds(const struct action *a, int *minx, int *miny, int *maxx, int *maxy
 		y0 = by;
 		x1 = bx + bw;
 		y1 = by + bh;
+	} else if (a->type == ACTION_NUMBER) {
+		int r = a->p0 > 0 ? a->p0 : 8;
+		x0 = a->x0 - r;
+		y0 = a->y0 - r;
+		x1 = a->x0 + r;
+		y1 = a->y0 + r;
 	} else if (a->type == ACTION_PEN && a->pen_points && a->pen_len > 0) {
 		x0 = x1 = a->pen_points[0];
 		y0 = y1 = a->pen_points[1];
@@ -854,6 +873,52 @@ append_pen_point(struct editor_state *ed, int x, int y)
 }
 
 static void
+append_ascii_text(struct editor_state *ed, const char *s)
+{
+	int i;
+	if (!ed || !s) {
+		return;
+	}
+	for (i = 0; s[i] != '\0' && ed->text_len < (int)sizeof(ed->text_buf) - 1; i++) {
+		unsigned char c = (unsigned char)s[i];
+		if ((c & 0x80u) != 0) {
+			continue;
+		}
+		if (isprint(c)) {
+			ed->text_buf[ed->text_len++] = (char)c;
+		}
+	}
+	ed->text_buf[ed->text_len] = '\0';
+}
+
+static int
+paste_text_from_clipboard(struct editor_state *ed)
+{
+	char clip[2048];
+
+	if (!ed) {
+		return 0;
+	}
+	if (clipboard_paste_text(clip, sizeof(clip)) != 0) {
+		return 0;
+	}
+	if (ed->text_mode) {
+		append_ascii_text(ed, clip);
+		ed->raster_dirty = 1;
+		return 1;
+	}
+	set_tool(ed, TOOL_TEXT);
+	ed->text_mode = 1;
+	ed->text_x = ed->img->width / 2;
+	ed->text_y = ed->img->height / 2;
+	ed->text_len = 0;
+	ed->text_buf[0] = '\0';
+	append_ascii_text(ed, clip);
+	ed->raster_dirty = 1;
+	return 1;
+}
+
+static void
 reset_pen_input(struct editor_state *ed)
 {
 	if (!ed) {
@@ -981,6 +1046,24 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 	case ACTION_PEN:
 		draw_pen_points(img, a->pen_points, a->pen_len, a->p0, a->color);
 		break;
+	case ACTION_NUMBER:
+		{
+			char num[32];
+			int scale = a->y1 > 0 ? a->y1 : 1;
+			int r = a->p0 > 0 ? a->p0 : number_radius_for_scale(scale);
+			int tw;
+			int tx;
+			int ty;
+			unsigned int fg = inverse_color(a->color);
+			draw_circle_fill(img, a->x0 - r, a->y0 - r, a->x0 + r, a->y0 + r, a->color);
+			draw_circle(img, a->x0 - r, a->y0 - r, a->x0 + r, a->y0 + r, 1, fg);
+			snprintf(num, sizeof(num), "%d", a->x1);
+			tw = (int)strlen(num) * 6 * scale;
+			tx = a->x0 - tw / 2;
+			ty = a->y0 - 4 * scale;
+			draw_text_xft(ed, img, tx, ty, num, scale, fg);
+		}
+		break;
 	case ACTION_RECT:
 		if (a->p0 < 0) {
 			draw_rect_fill(img, a->x0, a->y0, a->x1, a->y1, a->color);
@@ -1105,7 +1188,7 @@ push_action(struct action_stack *st, const struct action *in)
 static int
 tool_count(void)
 {
-	return 11;
+	return 12;
 }
 
 static enum tool
@@ -1116,12 +1199,13 @@ tool_by_index(int idx)
 	case 1: return TOOL_ARROW;
 	case 2: return TOOL_LINE;
 	case 3: return TOOL_PEN;
-	case 4: return TOOL_RECT;
-	case 5: return TOOL_CIRCLE;
-	case 6: return TOOL_TEXT;
-	case 7: return TOOL_HIGHLIGHT;
-	case 8: return TOOL_PIXELATE;
-	case 9: return TOOL_BLUR;
+	case 4: return TOOL_NUMBER;
+	case 5: return TOOL_RECT;
+	case 6: return TOOL_CIRCLE;
+	case 7: return TOOL_TEXT;
+	case 8: return TOOL_HIGHLIGHT;
+	case 9: return TOOL_PIXELATE;
+	case 10: return TOOL_BLUR;
 	default: return TOOL_PICKER;
 	}
 }
@@ -1134,6 +1218,7 @@ tool_label(enum tool t)
 	case TOOL_ARROW: return "ARW";
 	case TOOL_LINE: return "LIN";
 	case TOOL_PEN: return "PEN";
+	case TOOL_NUMBER: return "NUM";
 	case TOOL_RECT: return "REC";
 	case TOOL_CIRCLE: return "CIR";
 	case TOOL_TEXT: return "TXT";
@@ -1327,8 +1412,9 @@ draw_help_overlay(struct editor_state *ed)
 		"Ctrl+S: save timestamped",
 		"Ctrl+C: copy and exit",
 		"Ctrl+Y: copy current",
+		"Ctrl+V: paste text from clipboard",
 		"Ctrl+Z / Ctrl+Shift+Z: undo/redo",
-		"s: select  a: arrow  l: line  r: rect  o: circle",
+		"s: select  a: arrow  l: line  n: number  r: rect  o: circle",
 		"t: text  h: highlight  b: blur  p: pen  x: pixelate  c: picker",
 		"Space / left-click: apply tool",
 		"h/j/k/l or arrows: move cursor by 1px",
@@ -1591,6 +1677,9 @@ set_tool(struct editor_state *ed, enum tool tool)
 	if (ed->tool == TOOL_TEXT && ed->text_mode) {
 		commit_text_input(ed);
 	}
+	if (tool == TOOL_NUMBER && ed->tool != TOOL_NUMBER) {
+		ed->number_next = 1;
+	}
 	ed->tool = tool;
 	ed->anchor_active = 0;
 	clear_text_mode(ed);
@@ -1691,13 +1780,14 @@ tool_from_config_value(int value)
 	case 1: return TOOL_ARROW;
 	case 2: return TOOL_LINE;
 	case 3: return TOOL_PEN;
-	case 4: return TOOL_RECT;
-	case 5: return TOOL_CIRCLE;
-	case 6: return TOOL_TEXT;
-	case 7: return TOOL_HIGHLIGHT;
-	case 8: return TOOL_PIXELATE;
-	case 9: return TOOL_BLUR;
-	case 10: return TOOL_PICKER;
+	case 4: return TOOL_NUMBER;
+	case 5: return TOOL_RECT;
+	case 6: return TOOL_CIRCLE;
+	case 7: return TOOL_TEXT;
+	case 8: return TOOL_HIGHLIGHT;
+	case 9: return TOOL_PIXELATE;
+	case 10: return TOOL_BLUR;
+	case 11: return TOOL_PICKER;
 	default: return TOOL_ARROW;
 	}
 }
@@ -1794,6 +1884,7 @@ action_hit_test(const struct action *a, int x, int y)
 		return 0;
 	case ACTION_CIRCLE:
 	case ACTION_RECT:
+	case ACTION_NUMBER:
 	case ACTION_HIGHLIGHT:
 	case ACTION_PIXELATE:
 	case ACTION_BLUR:
@@ -1834,6 +1925,16 @@ action_move_by(struct action *a, int dx, int dy)
 			a->pen_points[i * 2 + 0] += dx;
 			a->pen_points[i * 2 + 1] += dy;
 		}
+		a->x0 += dx;
+		a->y0 += dy;
+		a->x1 += dx;
+		a->y1 += dy;
+		return;
+	}
+	if (a->type == ACTION_NUMBER) {
+		a->x0 += dx;
+		a->y0 += dy;
+		return;
 	}
 	a->x0 += dx;
 	a->y0 += dy;
@@ -1900,6 +2001,28 @@ commit_current_tool(struct editor_state *ed)
 		                         thickness_presets[ed->thickness_idx]);
 	case TOOL_PEN:
 		return 0;
+	case TOOL_NUMBER:
+		{
+			struct action a;
+			int scale = ed->text_scale > 0 ? ed->text_scale : 1;
+			int radius = number_radius_for_scale(scale);
+			memset(&a, 0, sizeof(a));
+			a.type = ACTION_NUMBER;
+			a.x0 = ed->cursor_x;
+			a.y0 = ed->cursor_y;
+			a.x1 = ed->number_next > 0 ? ed->number_next : 1;
+			a.y1 = scale;
+			a.p0 = radius;
+			a.color = ed->color;
+			if (push_action(&ed->actions, &a) != 0) {
+				fprintf(stderr, "s2: out of memory for number action\n");
+				return -1;
+			}
+			ed->number_next = a.x1 + 1;
+			ed->dirty = 1;
+			ed->raster_dirty = 1;
+			return 0;
+		}
 	case TOOL_RECT:
 		if (!ed->anchor_active) {
 			ed->anchor_active = 1;
@@ -2177,6 +2300,9 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		ed->anchor_active = 0;
 		return 1;
 	}
+	if ((kev->state & ControlMask) && (sym == XK_v || sym == XK_V)) {
+		return paste_text_from_clipboard(ed);
+	}
 
 	if (sym == XK_q || sym == XK_Escape) {
 		ed->cancelled = 1;
@@ -2194,6 +2320,10 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 	}
 	if (sym == XK_p) {
 		set_tool(ed, TOOL_PEN);
+		return 1;
+	}
+	if (sym == XK_n) {
+		set_tool(ed, TOOL_NUMBER);
 		return 1;
 	}
 	if (sym == XK_r) {
@@ -2377,22 +2507,39 @@ x11_setup(struct editor_state *ed)
 		ed->status_fg = 0x000000ul;
 	}
 
-	ed->win = XCreateSimpleWindow(ed->dpy,
+	{
+		XSizeHints hints;
+		int min_w = 640;
+		int min_h = 420;
+		int pref_w = ed->img->width;
+		int pref_h = ed->img->height + ed->status_h;
+		ed->win = XCreateSimpleWindow(ed->dpy,
 	                              RootWindow(ed->dpy, ed->screen),
 	                              0,
 	                              0,
-	                              (unsigned int)ed->img->width,
-	                              (unsigned int)(ed->img->height + ed->status_h),
+	                              (unsigned int)(pref_w > min_w ? pref_w : min_w),
+	                              (unsigned int)(pref_h > min_h ? pref_h : min_h),
 	                              0,
 	                              BlackPixel(ed->dpy, ed->screen),
 	                              ed->window_bg);
+		hints.flags = PMinSize;
+		hints.min_width = min_w;
+		hints.min_height = min_h;
+		XSetWMNormalHints(ed->dpy, ed->win, &hints);
+	}
 	set_wm_class(ed->dpy,
 	             ed->win,
 	             (ed->cfg && ed->cfg->window_class && *ed->cfg->window_class) ? ed->cfg->window_class :
 	                                                                                 "s2");
 	set_wm_window_type(ed->dpy, ed->win, ed->cfg && ed->cfg->normal_window);
 	ed->win_w = ed->img->width;
+	if (ed->win_w < 640) {
+		ed->win_w = 640;
+	}
 	ed->win_h = ed->img->height + ed->status_h;
+	if (ed->win_h < 420) {
+		ed->win_h = 420;
+	}
 	ed->scale = 1.0f;
 	ed->canvas_x = 0;
 	ed->canvas_y = 0;
@@ -2576,6 +2723,11 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 			reset_pen_input(ed);
 		}
 		ed->raster_dirty = 1;
+		return;
+	}
+	if (ed->tool == TOOL_NUMBER) {
+		ed->mouse_anchor_set_on_press = 0;
+		commit_current_tool(ed);
 		return;
 	}
 	if (tool_uses_anchor(ed->tool)) {
@@ -2769,6 +2921,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 	ed.selected_idx = -1;
 	ed.toolbar_hover = -1;
 	ed.save_timestamp = 0;
+	ed.number_next = 1;
 
 	if (img_alloc_like(&ed.base, img) != 0 ||
 	    img_alloc_like(&ed.rendered, img) != 0 ||

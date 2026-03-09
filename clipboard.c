@@ -44,3 +44,32 @@ clipboard_copy_png(const struct image *img)
 
 	return 0;
 }
+
+int
+clipboard_paste_text(char *out, size_t outlen)
+{
+	FILE *pipe;
+	size_t n;
+
+	if (!out || outlen < 2) {
+		return -1;
+	}
+	out[0] = '\0';
+	pipe = popen("xclip -selection clipboard -o -target text/plain;charset=utf-8 2>/dev/null", "r");
+	if (!pipe) {
+		return -1;
+	}
+	n = fread(out, 1, outlen - 1, pipe);
+	out[n] = '\0';
+	if (pclose(pipe) != 0 || n == 0) {
+		return -1;
+	}
+	while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r')) {
+		out[n - 1] = '\0';
+		n--;
+	}
+	if (n == 0) {
+		return -1;
+	}
+	return 0;
+}
