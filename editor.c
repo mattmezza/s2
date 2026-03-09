@@ -1,4 +1,5 @@
 #include <X11/Xft/Xft.h>
+#include <X11/Xatom.h>
 #include <X11/cursorfont.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -337,6 +338,28 @@ set_wm_class(Display *dpy, Window win, const char *name)
 	XSetClassHint(dpy, win, &hint);
 	free(res_name);
 	free(res_class);
+}
+
+static void
+set_wm_window_type(Display *dpy, Window win, int normal_window)
+{
+	Atom prop;
+	Atom kind;
+
+	if (!dpy || !win) {
+		return;
+	}
+	prop = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
+	if (prop == None) {
+		return;
+	}
+	kind = XInternAtom(dpy,
+	                  normal_window ? "_NET_WM_WINDOW_TYPE_NORMAL" : "_NET_WM_WINDOW_TYPE_DIALOG",
+	                  False);
+	if (kind == None) {
+		return;
+	}
+	XChangeProperty(dpy, win, prop, XA_ATOM, 32, PropModeReplace, (unsigned char *)&kind, 1);
 }
 
 static int
@@ -2367,6 +2390,7 @@ x11_setup(struct editor_state *ed)
 	             ed->win,
 	             (ed->cfg && ed->cfg->window_class && *ed->cfg->window_class) ? ed->cfg->window_class :
 	                                                                                 "s2");
+	set_wm_window_type(ed->dpy, ed->win, ed->cfg && ed->cfg->normal_window);
 	ed->win_w = ed->img->width;
 	ed->win_h = ed->img->height + ed->status_h;
 	ed->scale = 1.0f;

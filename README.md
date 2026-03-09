@@ -76,7 +76,7 @@ maim -s | s2 -i -
 
 - `Ctrl+C`: copy and exit
 - `Ctrl+S`: save timestamped PNG and exit (prints saved absolute path)
-- `q` / `Esc`: quit without save/copy
+- `q` / `Esc`: quit/cancel (non-zero exit)
 
 ## Current controls
 
@@ -84,7 +84,7 @@ maim -s | s2 -i -
 - `Ctrl+Y`: copy current image to clipboard
 - `Ctrl+S`: save to timestamped file in cwd (`YYYY-MM-DDTHHMM.png`)
 - `Enter`: save and exit
-- `q` or `Esc`: quit
+- `q` or `Esc`: quit/cancel (returns non-zero)
 - `s`: selection tool
 - `a`: arrow tool
 - `l`: line tool
@@ -125,6 +125,7 @@ CLI additions:
 
 - `-C <class>` sets X11 `WM_CLASS` (instance/class) for window rules in WMs like dwm.
 - `-D <absdir>` sets absolute save directory for Ctrl+S timestamp files (overrides config default).
+- `--normal-window` uses X11 normal window type instead of the default dialog window type.
 
 UI behavior:
 

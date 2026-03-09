@@ -21,12 +21,13 @@ void
 print_usage(const char *argv0)
 {
 	fprintf(stderr,
-	        "usage: %s [input_path] [-i path|-] [-o path] [-C class] [-D absdir] [-c] [-h] [-v]\n"
+	        "usage: %s [input_path] [-i path|-] [-o path] [-C class] [-D absdir] [--normal-window] [-c] [-h] [-v]\n"
 	        "\n"
 	        "  -i <path|->  input image path or stdin ('-')\n"
 	        "  -o <path>    output image path\n"
 	        "  -C <class>   X11 WM_CLASS instance/class value\n"
 	        "  -D <absdir>  absolute save directory override for Ctrl+S\n"
+	        "  --normal-window  use normal window type instead of dialog\n"
 	        "  -c           copy rendered result to clipboard on finish\n"
 	        "  -h           show help\n"
 	        "  -v           show version\n",
@@ -51,6 +52,8 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 			cfg->show_version = 1;
 		} else if (strcmp(arg, "-c") == 0) {
 			cfg->copy_on_finish = 1;
+		} else if (strcmp(arg, "--normal-window") == 0) {
+			cfg->normal_window = 1;
 		} else if (strcmp(arg, "-i") == 0) {
 			if (!next_arg(argc, argv, &i, &cfg->input_path)) {
 				fprintf(stderr, "s2: missing value for -i\n");

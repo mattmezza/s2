@@ -20,6 +20,7 @@ struct app_config {
 	const char *window_class;
 	const char *save_dir_override;
 	int copy_on_finish;
+	int normal_window;
 	int show_help;
 	int show_version;
 };
