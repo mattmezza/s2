@@ -166,9 +166,13 @@ struct editor_state {
 	const struct app_config *cfg;
 };
 
+#define TEXT_RENDER_PAD 4
+
 static int push_action(struct action_stack *st, const struct action *in);
+static XftFont *font_for_scale(struct editor_state *ed, int scale);
 static int text_bg_padding_for_scale(int scale);
-static void text_box_metrics(int x,
+static void text_box_metrics(const struct editor_state *ed,
+			     int x,
 			     int y,
 			     const char *text,
 			     int scale,
@@ -228,6 +232,197 @@ build_font_pattern_primary(char *out, size_t outlen, int px)
 		}
 	}
 	snprintf(out, outlen, "%s", tmp);
+}
+
+static void
+build_font_pattern_secondary(char *out, size_t outlen, int px)
+{
+	char base[192];
+	char *size_pos;
+	char *comma;
+	char *start;
+	char *end;
+
+	if (!out || outlen == 0) {
+		return;
+	}
+	out[0] = '\0';
+	if (!font_name || !*font_name) {
+		return;
+	}
+	snprintf(base, sizeof(base), "%s", font_name);
+	size_pos = strstr(base, ":size=");
+	if (size_pos) {
+		*size_pos = '\0';
+	}
+	comma = strchr(base, ',');
+	if (!comma) {
+		return;
+	}
+	start = comma + 1;
+	while (*start == ' ' || *start == '\t') {
+		start++;
+	}
+	if (*start == '\0') {
+		return;
+	}
+	end = start + strlen(start);
+	while (end > start && (end[-1] == ' ' || end[-1] == '\t')) {
+		end--;
+		*end = '\0';
+	}
+	if (*start == '\0') {
+		return;
+	}
+	snprintf(out, outlen, "%s:size=%d", start, px);
+}
+
+static int
+utf8_next_cp(const unsigned char *s, int len, int *used, FcChar32 *cp)
+{
+	if (!s || len <= 0 || !used || !cp) {
+		return 0;
+	}
+	if (s[0] < 0x80u) {
+		*cp = (FcChar32)s[0];
+		*used = 1;
+		return 1;
+	}
+	if (len >= 2 && (s[0] & 0xe0u) == 0xc0u && (s[1] & 0xc0u) == 0x80u) {
+		*cp = (FcChar32)(((s[0] & 0x1fu) << 6) | (s[1] & 0x3fu));
+		*used = 2;
+		return 1;
+	}
+	if (len >= 3 && (s[0] & 0xf0u) == 0xe0u && (s[1] & 0xc0u) == 0x80u && (s[2] & 0xc0u) == 0x80u) {
+		*cp = (FcChar32)(((s[0] & 0x0fu) << 12) | ((s[1] & 0x3fu) << 6) | (s[2] & 0x3fu));
+		*used = 3;
+		return 1;
+	}
+	if (len >= 4 && (s[0] & 0xf8u) == 0xf0u && (s[1] & 0xc0u) == 0x80u && (s[2] & 0xc0u) == 0x80u &&
+	    (s[3] & 0xc0u) == 0x80u) {
+		*cp = (FcChar32)(((s[0] & 0x07u) << 18) | ((s[1] & 0x3fu) << 12) | ((s[2] & 0x3fu) << 6) |
+		                (s[3] & 0x3fu));
+		*used = 4;
+		return 1;
+	}
+	*cp = (FcChar32)'?';
+	*used = 1;
+	return 1;
+}
+
+static void
+text_metrics_xft(const struct editor_state *ed, const char *text, int scale, int *tw, int *th)
+{
+	XftFont *font;
+	XftFont *font_fallback;
+	char fallback_pat[192];
+	int text_len;
+	int i;
+	int width;
+	int height;
+	XGlyphInfo ext;
+
+	if (tw) {
+		*tw = 0;
+	}
+	if (th) {
+		*th = 0;
+	}
+	if (!text || scale < 1) {
+		if (scale < 1) {
+			scale = 1;
+		}
+	}
+	if (!text) {
+		text = "";
+	}
+	if (scale < 1) {
+		scale = 1;
+	}
+	if (!ed || !ed->dpy) {
+		int cps = 0;
+		text_len = (int)strlen(text);
+		for (i = 0; i < text_len;) {
+			int used;
+			FcChar32 cp;
+			if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
+				break;
+			}
+			(void)cp;
+			cps++;
+			i += used;
+		}
+		if (tw) {
+			*tw = cps * 6 * scale;
+		}
+		if (th) {
+			*th = 8 * scale;
+		}
+		return;
+	}
+
+	font = font_for_scale((struct editor_state *)ed, scale);
+	if (!font) {
+		int cps = 0;
+		text_len = (int)strlen(text);
+		for (i = 0; i < text_len;) {
+			int used;
+			FcChar32 cp;
+			if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
+				break;
+			}
+			(void)cp;
+			cps++;
+			i += used;
+		}
+		if (tw) {
+			*tw = cps * 6 * scale;
+		}
+		if (th) {
+			*th = 8 * scale;
+		}
+		return;
+	}
+
+	font_fallback = NULL;
+	build_font_pattern_secondary(fallback_pat, sizeof(fallback_pat), 8 * scale);
+	if (fallback_pat[0] != '\0') {
+		font_fallback = XftFontOpenName(ed->dpy, ed->screen, fallback_pat);
+	}
+
+	width = 0;
+	height = font->ascent + font->descent;
+	if (font_fallback) {
+		int fh = font_fallback->ascent + font_fallback->descent;
+		if (fh > height) {
+			height = fh;
+		}
+	}
+	text_len = (int)strlen(text);
+	for (i = 0; i < text_len;) {
+		FcChar32 cp;
+		int used;
+		XftFont *f;
+		if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
+			break;
+		}
+		f = font;
+		if (font_fallback && !XftCharExists(ed->dpy, font, cp) && XftCharExists(ed->dpy, font_fallback, cp)) {
+			f = font_fallback;
+		}
+		XftTextExtentsUtf8(ed->dpy, f, (const FcChar8 *)text + i, used, &ext);
+		width += ext.xOff;
+		i += used;
+	}
+	if (font_fallback) {
+		XftFontClose(ed->dpy, font_fallback);
+	}
+	if (tw) {
+		*tw = width;
+	}
+	if (th) {
+		*th = height;
+	}
 }
 
 static int
@@ -751,7 +946,7 @@ font_for_scale(struct editor_state *ed, int scale)
 }
 
 static void
-action_bounds(const struct action *a, int *minx, int *miny, int *maxx, int *maxy)
+action_bounds(const struct editor_state *ed, const struct action *a, int *minx, int *miny, int *maxx, int *maxy)
 {
 	int x0;
 	int y0;
@@ -780,7 +975,7 @@ action_bounds(const struct action *a, int *minx, int *miny, int *maxx, int *maxy
 		y0 = a->y0;
 		x1 = a->x0;
 		y1 = a->y0;
-		text_box_metrics(a->x0, a->y0, a->text, scale, a->p0 < 0, &bx, &by, &bw, &bh);
+		text_box_metrics(ed, a->x0, a->y0, a->text, scale, a->p0 < 0, &bx, &by, &bw, &bh);
 		x0 = bx;
 		y0 = by;
 		x1 = bx + bw;
@@ -842,7 +1037,16 @@ text_bg_padding_for_scale(int scale)
 }
 
 static void
-text_box_metrics(int x, int y, const char *text, int scale, int with_fill, int *bx, int *by, int *bw, int *bh)
+text_box_metrics(const struct editor_state *ed,
+		 int x,
+		 int y,
+		 const char *text,
+		 int scale,
+		 int with_fill,
+		 int *bx,
+		 int *by,
+		 int *bw,
+		 int *bh)
 {
 	int tw;
 	int th;
@@ -851,14 +1055,13 @@ text_box_metrics(int x, int y, const char *text, int scale, int with_fill, int *
 	if (scale < 1) {
 		scale = 1;
 	}
-	tw = text ? (int)strlen(text) * 6 * scale : 0;
-	th = 8 * scale;
+	text_metrics_xft(ed, text ? text : "", scale, &tw, &th);
 	pad = with_fill ? text_bg_padding_for_scale(scale) : 0;
 	if (bx) {
-		*bx = x - pad;
+		*bx = x + TEXT_RENDER_PAD - pad;
 	}
 	if (by) {
-		*by = y - pad;
+		*by = y + TEXT_RENDER_PAD - pad;
 	}
 	if (bw) {
 		*bw = tw + pad * 2;
@@ -988,6 +1191,7 @@ static void
 draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const char *text, int scale, unsigned int color)
 {
 	XftFont *font;
+	XftFont *font_fallback = NULL;
 	XGlyphInfo ext;
 	int w;
 	int h;
@@ -1001,6 +1205,9 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 	int ix;
 	int iy;
 	unsigned int painted;
+	int i;
+	int text_len;
+	char fallback_pat[192];
 
 	if (!ed || !img || !text || !*text) {
 		return;
@@ -1010,11 +1217,42 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 		draw_text(img, x, y, text, scale, color);
 		return;
 	}
-
-	XftTextExtentsUtf8(ed->dpy, font, (const FcChar8 *)text, (int)strlen(text), &ext);
-	w = ext.xOff + 8;
+	text_len = (int)strlen(text);
+	build_font_pattern_secondary(fallback_pat, sizeof(fallback_pat), 8 * scale);
+	if (fallback_pat[0] != '\0') {
+		font_fallback = XftFontOpenName(ed->dpy, ed->screen, fallback_pat);
+	}
+	w = 0;
+	for (i = 0; i < text_len;) {
+		FcChar32 cp;
+		int used;
+		XftFont *f;
+		if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
+			break;
+		}
+		f = font;
+		if (font_fallback && !XftCharExists(ed->dpy, font, cp) && XftCharExists(ed->dpy, font_fallback, cp)) {
+			f = font_fallback;
+		}
+		XftTextExtentsUtf8(ed->dpy, f, (const FcChar8 *)text + i, used, &ext);
+		w += ext.xOff;
+		i += used;
+	}
+	if (w < 1) {
+		w = 8;
+	}
+	w += TEXT_RENDER_PAD * 2;
 	h = font->ascent + font->descent + 8;
+	if (font_fallback) {
+		int fh = font_fallback->ascent + font_fallback->descent + 8;
+		if (fh > h) {
+			h = fh;
+		}
+	}
 	if (w <= 0 || h <= 0) {
+		if (font_fallback) {
+			XftFontClose(ed->dpy, font_fallback);
+		}
 		return;
 	}
 
@@ -1043,8 +1281,30 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 		return;
 	}
 
-	baseline = font->ascent + 4;
-	XftDrawStringUtf8(dr, &xc, font, 4, baseline, (const FcChar8 *)text, (int)strlen(text));
+	{
+		int pen_x = TEXT_RENDER_PAD;
+		int max_ascent = font->ascent;
+		if (font_fallback && font_fallback->ascent > max_ascent) {
+			max_ascent = font_fallback->ascent;
+		}
+		baseline = max_ascent + TEXT_RENDER_PAD;
+		for (i = 0; i < text_len;) {
+			FcChar32 cp;
+			int used;
+			XftFont *f;
+			if (!utf8_next_cp((const unsigned char *)text + i, text_len - i, &used, &cp) || used <= 0) {
+				break;
+			}
+			f = font;
+			if (font_fallback && !XftCharExists(ed->dpy, font, cp) && XftCharExists(ed->dpy, font_fallback, cp)) {
+				f = font_fallback;
+			}
+			XftDrawStringUtf8(dr, &xc, f, pen_x, baseline, (const FcChar8 *)text + i, used);
+			XftTextExtentsUtf8(ed->dpy, f, (const FcChar8 *)text + i, used, &ext);
+			pen_x += ext.xOff;
+			i += used;
+		}
+	}
 	XftColorFree(ed->dpy, DefaultVisual(ed->dpy, ed->screen), ed->cmap, &xc);
 
 	painted = 0;
@@ -1058,6 +1318,9 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 				unsigned char g = pixel_channel(pp, xi->green_mask);
 				unsigned char b = pixel_channel(pp, xi->blue_mask);
 				unsigned char a = (unsigned char)(((unsigned int)r + (unsigned int)g + (unsigned int)b) / 3u);
+				if (a == 0 && pp != 0 && !font_fallback) {
+					a = 255;
+				}
 				int tx = x + ix;
 				int ty = y + iy;
 				if (a > 8 && tx >= 0 && ty >= 0 && tx < img->width && ty < img->height) {
@@ -1084,6 +1347,9 @@ draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const ch
 	XftDrawDestroy(dr);
 	XFreeGC(ed->dpy, pgc);
 	XFreePixmap(ed->dpy, px);
+	if (font_fallback) {
+		XftFontClose(ed->dpy, font_fallback);
+	}
 }
 
 static void
@@ -1114,7 +1380,7 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 			draw_circle_fill(img, a->x0 - r, a->y0 - r, a->x0 + r, a->y0 + r, a->color);
 			draw_circle(img, a->x0 - r, a->y0 - r, a->x0 + r, a->y0 + r, 1, fg);
 			snprintf(num, sizeof(num), "%d", a->x1);
-			tw = (int)strlen(num) * 6 * scale;
+			text_metrics_xft(ed, num, scale, &tw, NULL);
 			tx = a->x0 - tw / 2;
 			ty = a->y0 - 4 * scale;
 			draw_text_xft(ed, img, tx, ty, num, scale, fg);
@@ -1150,7 +1416,7 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 				int x;
 				int y;
 				unsigned int bg = inverse_color(a->color);
-				text_box_metrics(a->x0, a->y0, a->text, scale, 1, &bx, &by, &bw, &bh);
+			text_box_metrics(ed, a->x0, a->y0, a->text, scale, 1, &bx, &by, &bw, &bh);
 				for (y = 0; y < bh; y++) {
 					for (x = 0; x < bw; x++) {
 						img_put_px(img, bx + x, by + y, bg);
@@ -1591,7 +1857,8 @@ render_frame(struct editor_state *ed)
 			int x;
 			int y;
 			unsigned int bg = inverse_color(ed->color);
-			text_box_metrics(ed->text_x,
+			text_box_metrics(ed,
+			                 ed->text_x,
 			                 ed->text_y,
 			                 ed->text_buf,
 			                 ed->text_scale > 0 ? ed->text_scale : 1,
@@ -1654,7 +1921,7 @@ render_frame(struct editor_state *ed)
 		int sy0;
 		int sx1;
 		int sy1;
-		action_bounds(sa, &minx, &miny, &maxx, &maxy);
+		action_bounds(ed, sa, &minx, &miny, &maxx, &maxy);
 		if (ed->drag_active) {
 			minx += ed->drag_dx;
 			maxx += ed->drag_dx;
@@ -1897,7 +2164,7 @@ distance_sq_point_segment(int px, int py, int x0, int y0, int x1, int y1)
 }
 
 static int
-action_hit_test(const struct action *a, int x, int y)
+action_hit_test(const struct editor_state *ed, const struct action *a, int x, int y)
 {
 	int minx;
 	int miny;
@@ -1947,9 +2214,13 @@ action_hit_test(const struct action *a, int x, int y)
 		return x >= minx - pad && x <= maxx + pad && y >= miny - pad && y <= maxy + pad;
 	case ACTION_TEXT:
 		{
-			int tw = a->text ? (int)strlen(a->text) * 6 * (a->p0 > 0 ? a->p0 : 1) : 0;
-			int th = 8 * (a->p0 > 0 ? a->p0 : 1);
-			return x >= a->x0 - pad && x <= a->x0 + tw + pad && y >= a->y0 - pad && y <= a->y0 + th + pad;
+			int bx;
+			int by;
+			int bw;
+			int bh;
+			int scale = a->p0 > 0 ? a->p0 : 1;
+			text_box_metrics(ed, a->x0, a->y0, a->text ? a->text : "", scale, a->p0 < 0, &bx, &by, &bw, &bh);
+			return x >= bx - pad && x <= bx + bw + pad && y >= by - pad && y <= by + bh + pad;
 		}
 	default:
 		return 0;
@@ -1961,7 +2232,7 @@ find_action_at(const struct editor_state *ed, int x, int y)
 {
 	int i;
 	for (i = (int)ed->actions.cursor - 1; i >= 0; i--) {
-		if (action_hit_test(&ed->actions.items[i], x, y)) {
+		if (action_hit_test(ed, &ed->actions.items[i], x, y)) {
 			return i;
 		}
 	}
