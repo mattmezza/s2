@@ -46,6 +46,10 @@
 #define text_fill_corner_radius 2
 #endif
 
+#ifndef window_padding
+#define window_padding 16
+#endif
+
 enum tool {
 	TOOL_SELECT = 0,
 	TOOL_ARROW,
@@ -278,6 +282,10 @@ render_text_pango(const struct editor_state *ed,
 		      const char *text,
 		      int scale,
 		      unsigned int color,
+		      int *ink_x,
+		      int *ink_y,
+		      int *ink_w,
+		      int *ink_h,
 		      int measure_only,
 		      int *out_w,
 		      int *out_h)
@@ -287,11 +295,19 @@ render_text_pango(const struct editor_state *ed,
 	cairo_t *cr;
 	PangoLayout *layout;
 	PangoFontDescription *desc;
+	PangoRectangle ink_rect;
+	PangoRectangle logical_rect;
 	char family[192];
 	int w_px;
 	int h_px;
 	int draw_w;
 	int draw_h;
+	int draw_off_x;
+	int draw_off_y;
+	int ix0;
+	int iy0;
+	int ix1;
+	int iy1;
 	double sr;
 	double sg;
 	double sb;
@@ -339,8 +355,34 @@ render_text_pango(const struct editor_state *ed,
 	pango_font_description_set_absolute_size(desc, (double)(TEXT_SCALE_PX * scale) * PANGO_SCALE);
 	pango_layout_set_font_description(layout, desc);
 	pango_font_description_free(desc);
-	pango_layout_get_pixel_size(layout, &w_px, &h_px);
+	pango_layout_get_pixel_extents(layout, &ink_rect, &logical_rect);
+	w_px = logical_rect.width;
+	h_px = logical_rect.height;
+	if (w_px <= 0) {
+		w_px = ink_rect.width;
+	}
+	if (h_px <= 0) {
+		h_px = ink_rect.height;
+	}
+	if (w_px < 0) {
+		w_px = 0;
+	}
+	if (h_px < 0) {
+		h_px = 0;
+	}
 
+	if (ink_x) {
+		*ink_x = x + TEXT_RENDER_PAD + ink_rect.x;
+	}
+	if (ink_y) {
+		*ink_y = y + TEXT_RENDER_PAD + ink_rect.y;
+	}
+	if (ink_w) {
+		*ink_w = ink_rect.width > 0 ? ink_rect.width : w_px;
+	}
+	if (ink_h) {
+		*ink_h = ink_rect.height > 0 ? ink_rect.height : h_px;
+	}
 	if (out_w) {
 		*out_w = w_px;
 	}
@@ -355,8 +397,10 @@ render_text_pango(const struct editor_state *ed,
 		return 0;
 	}
 
-	draw_w = w_px + TEXT_RENDER_PAD * 2;
-	draw_h = h_px + TEXT_RENDER_PAD * 2;
+	draw_w = (ink_rect.width > 0 ? ink_rect.width : w_px) + TEXT_RENDER_PAD * 2;
+	draw_h = (ink_rect.height > 0 ? ink_rect.height : h_px) + TEXT_RENDER_PAD * 2;
+	draw_off_x = TEXT_RENDER_PAD - ink_rect.x;
+	draw_off_y = TEXT_RENDER_PAD - ink_rect.y;
 	if (draw_w <= 0 || draw_h <= 0) {
 		return 0;
 	}
@@ -396,6 +440,11 @@ render_text_pango(const struct editor_state *ed,
 	pango_layout_set_font_description(layout, desc);
 	pango_font_description_free(desc);
 
+	ix0 = draw_w;
+	iy0 = draw_h;
+	ix1 = -1;
+	iy1 = -1;
+
 	if (w_px > 0 && h_px > 0) {
 		int ix;
 		int iy;
@@ -406,7 +455,7 @@ render_text_pango(const struct editor_state *ed,
 		sg = (double)((color >> 8) & 0xff) / 255.0;
 		sb = (double)(color & 0xff) / 255.0;
 		cairo_set_source_rgb(cr, sr, sg, sb);
-		cairo_move_to(cr, (double)TEXT_RENDER_PAD, (double)TEXT_RENDER_PAD);
+		cairo_move_to(cr, (double)draw_off_x, (double)draw_off_y);
 		pango_cairo_show_layout(cr, layout);
 		cairo_surface_flush(surface);
 		src = cairo_image_surface_get_data(surface);
@@ -422,12 +471,31 @@ render_text_pango(const struct editor_state *ed,
 				unsigned char a = sp[3];
 				if (a > 8 && tx >= 0 && ty >= 0 && tx < img->width && ty < img->height) {
 					unsigned char *dst = img->pixels + ((size_t)ty * (size_t)img->width + (size_t)tx) * 4u;
+					if (ix < ix0) ix0 = ix;
+					if (iy < iy0) iy0 = iy;
+					if (ix > ix1) ix1 = ix;
+					if (iy > iy1) iy1 = iy;
 					dst[0] = (unsigned char)(((unsigned int)dst[0] * (255u - a) + (unsigned int)r * a) / 255u);
 					dst[1] = (unsigned char)(((unsigned int)dst[1] * (255u - a) + (unsigned int)g * a) / 255u);
 					dst[2] = (unsigned char)(((unsigned int)dst[2] * (255u - a) + (unsigned int)b * a) / 255u);
 					dst[3] = 0xff;
 				}
 			}
+		}
+	}
+
+	if (ix1 >= ix0 && iy1 >= iy0) {
+		if (ink_x) {
+			*ink_x = x + ix0;
+		}
+		if (ink_y) {
+			*ink_y = y + iy0;
+		}
+		if (ink_w) {
+			*ink_w = ix1 - ix0 + 1;
+		}
+		if (ink_h) {
+			*ink_h = iy1 - iy0 + 1;
 		}
 	}
 
@@ -440,7 +508,7 @@ render_text_pango(const struct editor_state *ed,
 static void
 text_metrics_xft(const struct editor_state *ed, const char *text, int scale, int *tw, int *th)
 {
-	if (render_text_pango(ed, NULL, 0, 0, text, scale, 0, 1, tw, th) != 0) {
+	if (render_text_pango(ed, NULL, 0, 0, text, scale, 0, NULL, NULL, NULL, NULL, 1, tw, th) != 0) {
 		int len;
 		if (!text) {
 			text = "";
@@ -795,8 +863,8 @@ recalc_layout(struct editor_state *ed)
 	if (!ed || !ed->img) {
 		return;
 	}
-	draw_w = ed->win_w;
-	draw_h = ed->win_h - ed->status_h - ed->status_pad;
+	draw_w = ed->win_w - window_padding * 2;
+	draw_h = ed->win_h - ed->status_h - ed->status_pad - window_padding * 2;
 	if (draw_w < 1) {
 		draw_w = 1;
 	}
@@ -814,10 +882,10 @@ recalc_layout(struct editor_state *ed)
 	ed->canvas_h = (int)(ed->img->height * ed->scale);
 	if (ed->canvas_w < 1) ed->canvas_w = 1;
 	if (ed->canvas_h < 1) ed->canvas_h = 1;
-	ed->canvas_x = (draw_w - ed->canvas_w) / 2;
-	ed->canvas_y = (draw_h - ed->canvas_h) / 2;
-	if (ed->canvas_x < 0) ed->canvas_x = 0;
-	if (ed->canvas_y < 0) ed->canvas_y = 0;
+	ed->canvas_x = window_padding + (draw_w - ed->canvas_w) / 2;
+	ed->canvas_y = window_padding + (draw_h - ed->canvas_h) / 2;
+	if (ed->canvas_x < window_padding) ed->canvas_x = window_padding;
+	if (ed->canvas_y < window_padding) ed->canvas_y = window_padding;
 }
 
 static int
@@ -1067,23 +1135,50 @@ text_box_metrics(const struct editor_state *ed,
 	int tw;
 	int th;
 	int pad;
+	int ink_x;
+	int ink_y;
+	int ink_w;
+	int ink_h;
 
 	if (scale < 1) {
 		scale = 1;
 	}
-	text_metrics_xft(ed, text ? text : "", scale, &tw, &th);
+	ink_x = x + TEXT_RENDER_PAD;
+	ink_y = y + TEXT_RENDER_PAD;
+	ink_w = 0;
+	ink_h = 0;
+	if (render_text_pango(ed,
+	                      NULL,
+	                      x,
+	                      y,
+	                      text ? text : "",
+	                      scale,
+	                      0,
+	                      &ink_x,
+	                      &ink_y,
+	                      &ink_w,
+	                      &ink_h,
+	                      1,
+	                      &tw,
+	                      &th) != 0) {
+		text_metrics_xft(ed, text ? text : "", scale, &tw, &th);
+		ink_x = x + TEXT_RENDER_PAD;
+		ink_y = y + TEXT_RENDER_PAD;
+		ink_w = tw;
+		ink_h = th;
+	}
 	pad = with_fill ? text_bg_padding_for_scale(scale) : 0;
 	if (bx) {
-		*bx = x + TEXT_RENDER_PAD - pad;
+		*bx = ink_x - pad;
 	}
 	if (by) {
-		*by = y + TEXT_RENDER_PAD - pad;
+		*by = ink_y - pad;
 	}
 	if (bw) {
-		*bw = tw + pad * 2;
+		*bw = ink_w + pad * 2;
 	}
 	if (bh) {
-		*bh = th + pad * 2;
+		*bh = ink_h + pad * 2;
 	}
 }
 
@@ -1206,7 +1301,7 @@ reset_pen_input(struct editor_state *ed)
 static void
 draw_text_xft(struct editor_state *ed, struct image *img, int x, int y, const char *text, int scale, unsigned int color)
 {
-	if (render_text_pango(ed, img, x, y, text, scale, color, 0, NULL, NULL) != 0) {
+	if (render_text_pango(ed, img, x, y, text, scale, color, NULL, NULL, NULL, NULL, 0, NULL, NULL) != 0) {
 		draw_text(img, x, y, text, scale, color);
 	}
 }
@@ -2070,7 +2165,7 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 			int bw;
 			int bh;
 			int scale = a->p0 > 0 ? a->p0 : 1;
-			int extra = scale * 2 + TEXT_RENDER_PAD;
+			int extra = scale * 4 + text_bg_padding_for_scale(scale) + TEXT_RENDER_PAD;
 			text_box_metrics(ed, a->x0, a->y0, a->text ? a->text : "", scale, a->p0 < 0, &bx, &by, &bw, &bh);
 			return x >= bx - pad - extra && x <= bx + bw + pad + extra && y >= by - pad - extra && y <= by + bh + pad + extra;
 		}
@@ -2315,6 +2410,12 @@ handle_text_mode(struct editor_state *ed, XKeyEvent *kev)
 			ed->text_len--;
 			ed->text_buf[ed->text_len] = '\0';
 		}
+		ed->raster_dirty = 1;
+		return 1;
+	}
+	if ((kev->state & ControlMask) && (sym == XK_v || sym == XK_V)) {
+		paste_text_from_clipboard(ed);
+		ed->raster_dirty = 1;
 		return 1;
 	}
 
@@ -2339,6 +2440,7 @@ handle_text_mode(struct editor_state *ed, XKeyEvent *kev)
 				ed->text_buf[ed->text_len] = '\0';
 			}
 		}
+		ed->raster_dirty = 1;
 	}
 	return 1;
 }
@@ -2697,7 +2799,7 @@ x11_setup(struct editor_state *ed)
 		int min_w = 640;
 		int min_h = 420;
 		int pref_w = ed->img->width;
-		int pref_h = ed->img->height + ed->status_h;
+		int pref_h = ed->img->height + ed->status_h + ed->status_pad + window_padding * 2;
 		ed->win = XCreateSimpleWindow(ed->dpy,
 	                              RootWindow(ed->dpy, ed->screen),
 	                              0,
@@ -2721,7 +2823,7 @@ x11_setup(struct editor_state *ed)
 	if (ed->win_w < 640) {
 		ed->win_w = 640;
 	}
-	ed->win_h = ed->img->height + ed->status_h;
+	ed->win_h = ed->img->height + ed->status_h + ed->status_pad + window_padding * 2;
 	if (ed->win_h < 420) {
 		ed->win_h = 420;
 	}
@@ -3130,6 +3232,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 		return -1;
 	}
 	setlocale(LC_CTYPE, "");
+	setlocale(LC_ALL, "");
 	if (ed.xic) {
 		XSetICFocus(ed.xic);
 	}
