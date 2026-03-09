@@ -48,6 +48,7 @@ Install destination defaults to `/usr/local/bin/s2` and can be changed in `confi
 - Edit `config.h` for local customization.
 - Save defaults can be customized in `config.h` with `default_save_directory`.
 - Tool defaults can be customized in `config.h` with `default_palette_index`, `default_thickness_index`, and `default_text_scale`.
+- UI defaults can be customized in `config.h` with `S2_DEFAULT_TOOL_INDEX` and `S2_SELECTION_BBOX_COLOR`.
 - Before reinstalling after upstream changes, remove local `config.h` so defaults can refresh:
 
 ```sh
@@ -92,7 +93,8 @@ maim -s | s2 -i -
 - `t`: text tool
 - `h`: highlight tool
 - `b`: blur tool
-- `p`: pixelate tool
+- `p`: pen tool (freehand)
+- `P`: pixelate tool
 - `c`: color picker tool (sample from image)
 - `h/j/k/l` or arrow keys: move keyboard cursor by 1px
 - `H/J/K/L`: move keyboard cursor by 10px
@@ -105,17 +107,18 @@ maim -s | s2 -i -
 - `1..9`: select color from palette
 - `#`: enter hex color mode (type 6 hex chars, Enter to apply)
 - `f`: toggle fill mode (filled circles + text background with inverse contrast)
-- `x`: cancel pending anchor (arrow/circle/pixelate/blur)
+- `x`: cancel pending anchor or active pen/text input
 - `Backspace`/`Delete`: delete selected object
 
 Tool flow:
 
 - Arrow/Circle/Pixelate/Blur keyboard flow: first `Space` sets anchor, second `Space` commits.
 - Arrow/Circle/Pixelate/Blur mouse flow: press sets anchor, release commits at current cursor.
-- Text: `Space` enters text input mode, type, `Enter` commits text.
+- Text: click or `Space` enters text input mode; type with live preview; `Enter` or click commits text.
 - Text live-preview: while typing, current text is previewed on image before commit.
 - Picker: `Space` samples color under cursor into active color.
-- Selection: click object to select, drag to move, `Backspace`/`Delete` to remove.
+- Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move.
+- Pen: click-hold and drag to draw freehand using current thickness.
 
 CLI additions:
 
