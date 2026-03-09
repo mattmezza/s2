@@ -50,19 +50,31 @@ clipboard_paste_text(char *out, size_t outlen)
 {
 	FILE *pipe;
 	size_t n;
+	int ok;
 
 	if (!out || outlen < 2) {
 		return -1;
 	}
 	out[0] = '\0';
-	pipe = popen("xclip -selection clipboard -o -target text/plain;charset=utf-8 2>/dev/null", "r");
-	if (!pipe) {
-		return -1;
+	ok = 0;
+	pipe = popen("xclip -selection clipboard -o -target UTF8_STRING 2>/dev/null", "r");
+	if (pipe) {
+		n = fread(out, 1, outlen - 1, pipe);
+		out[n] = '\0';
+		if (pclose(pipe) == 0 && n > 0) {
+			ok = 1;
+		}
 	}
-	n = fread(out, 1, outlen - 1, pipe);
-	out[n] = '\0';
-	if (pclose(pipe) != 0 || n == 0) {
-		return -1;
+	if (!ok) {
+		pipe = popen("xclip -selection clipboard -o -target text/plain;charset=utf-8 2>/dev/null", "r");
+		if (!pipe) {
+			return -1;
+		}
+		n = fread(out, 1, outlen - 1, pipe);
+		out[n] = '\0';
+		if (pclose(pipe) != 0 || n == 0) {
+			return -1;
+		}
 	}
 	while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r')) {
 		out[n - 1] = '\0';

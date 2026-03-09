@@ -675,7 +675,10 @@ pixel_channel(unsigned long p, unsigned long mask)
 static XftFont *
 font_for_scale(struct editor_state *ed, int scale)
 {
-	char pat[128];
+	char base[160];
+	char pat[192];
+	const char *src;
+	char *size_pos;
 
 	if (scale < 1) {
 		scale = 1;
@@ -686,7 +689,13 @@ font_for_scale(struct editor_state *ed, int scale)
 	if (ed->xftfont_tool[scale]) {
 		return ed->xftfont_tool[scale];
 	}
-	snprintf(pat, sizeof(pat), "monospace:size=%d", 8 * scale);
+	src = (font_name && *font_name) ? font_name : "monospace";
+	snprintf(base, sizeof(base), "%s", src);
+	size_pos = strstr(base, ":size=");
+	if (size_pos) {
+		*size_pos = '\0';
+	}
+	snprintf(pat, sizeof(pat), "%s:size=%d", base, 8 * scale);
 	ed->xftfont_tool[scale] = XftFontOpenName(ed->dpy, ed->screen, pat);
 	if (!ed->xftfont_tool[scale]) {
 		ed->xftfont_tool[scale] = ed->xftfont_status;
