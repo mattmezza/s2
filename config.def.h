@@ -19,7 +19,7 @@ static const unsigned int palette[] = {
 };
 
 /* default tool values */
-static const int default_palette_index = 9;
+static const int default_palette_index = 8;
 static const int default_thickness_index = 4;
 static const int default_text_scale = 4;
 static const int default_highlight_strength = 25;
