@@ -873,7 +873,7 @@ append_pen_point(struct editor_state *ed, int x, int y)
 }
 
 static void
-append_ascii_text(struct editor_state *ed, const char *s)
+append_pasted_text(struct editor_state *ed, const char *s)
 {
 	int i;
 	if (!ed || !s) {
@@ -881,10 +881,10 @@ append_ascii_text(struct editor_state *ed, const char *s)
 	}
 	for (i = 0; s[i] != '\0' && ed->text_len < (int)sizeof(ed->text_buf) - 1; i++) {
 		unsigned char c = (unsigned char)s[i];
-		if ((c & 0x80u) != 0) {
+		if (c == '\r' || c == '\n') {
 			continue;
 		}
-		if (isprint(c)) {
+		if (c >= 0x20u || c >= 0x80u) {
 			ed->text_buf[ed->text_len++] = (char)c;
 		}
 	}
@@ -903,7 +903,7 @@ paste_text_from_clipboard(struct editor_state *ed)
 		return 0;
 	}
 	if (ed->text_mode) {
-		append_ascii_text(ed, clip);
+		append_pasted_text(ed, clip);
 		ed->raster_dirty = 1;
 		return 1;
 	}
@@ -913,7 +913,7 @@ paste_text_from_clipboard(struct editor_state *ed)
 	ed->text_y = ed->img->height / 2;
 	ed->text_len = 0;
 	ed->text_buf[0] = '\0';
-	append_ascii_text(ed, clip);
+	append_pasted_text(ed, clip);
 	ed->raster_dirty = 1;
 	return 1;
 }
