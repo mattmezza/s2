@@ -112,6 +112,10 @@ maim -s | s2 -i -
 - `?`: toggle keybindings help panel
 - `Backspace`/`Delete`: delete selected object
 
+Text mode note:
+
+- Pressing `Esc` while typing exits text input first; pressing `Esc` again then quits.
+
 Tool flow:
 
 - Arrow/Circle/Pixelate/Blur keyboard flow: first `Space` sets anchor, second `Space` commits.

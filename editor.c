@@ -162,6 +162,7 @@ struct editor_state {
 	int toolbar_hover;
 	int show_help;
 	int number_next;
+	int suppress_escape_once;
 	const struct app_config *cfg;
 };
 
@@ -184,7 +185,6 @@ build_font_pattern(char *out, size_t outlen, int px)
 	char base[160];
 	const char *src;
 	char *size_pos;
-	char *comma;
 	char *end;
 
 	if (!out || outlen == 0) {
@@ -195,10 +195,6 @@ build_font_pattern(char *out, size_t outlen, int px)
 	size_pos = strstr(base, ":size=");
 	if (size_pos) {
 		*size_pos = '\0';
-	}
-	comma = strchr(base, ',');
-	if (comma) {
-		*comma = '\0';
 	}
 	end = base + strlen(base);
 	while (end > base && (end[-1] == ' ' || end[-1] == '\t')) {
@@ -2157,6 +2153,7 @@ handle_text_mode(struct editor_state *ed, XKeyEvent *kev)
 	sym = XLookupKeysym(kev, 0);
 	if (sym == XK_Escape) {
 		clear_text_mode(ed);
+		ed->suppress_escape_once = 1;
 		return 1;
 	}
 	if (sym == XK_Return) {
@@ -2302,6 +2299,11 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 	if (ed->text_mode) {
 		return handle_text_mode(ed, kev);
 	}
+	if (ed->suppress_escape_once && sym == XK_Escape) {
+		ed->suppress_escape_once = 0;
+		return 1;
+	}
+	ed->suppress_escape_once = 0;
 	if (ed->color_mode) {
 		return handle_color_mode(ed, kev);
 	}
