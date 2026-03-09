@@ -94,7 +94,7 @@ maim -s | s2 -i -
 - `h`: highlight tool
 - `b`: blur tool
 - `p`: pen tool (freehand)
-- `P`: pixelate tool
+- `x`: pixelate tool
 - `c`: color picker tool (sample from image)
 - `h/j/k/l` or arrow keys: move keyboard cursor by 1px
 - `H/J/K/L`: move keyboard cursor by 10px
@@ -107,7 +107,8 @@ maim -s | s2 -i -
 - `1..9`: select color from palette
 - `#`: enter hex color mode (type 6 hex chars, Enter to apply)
 - `f`: toggle fill mode (filled circles + text background with inverse contrast)
-- `x`: cancel pending anchor or active pen/text input
+- `X`: cancel pending anchor or active pen/text input
+- `?`: toggle keybindings help panel
 - `Backspace`/`Delete`: delete selected object
 
 Tool flow:
