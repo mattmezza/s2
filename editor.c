@@ -1653,28 +1653,27 @@ draw_status(struct editor_state *ed)
 }
 
 static void
-draw_pen_segment_overlay(struct editor_state *ed, int x0, int y0, int x1, int y1)
+draw_pen_overlay(struct editor_state *ed)
 {
-	int sx0;
-	int sy0;
-	int sx1;
-	int sy1;
+	int i;
 	int lw;
 
-	if (!ed || !ed->dpy || !ed->win || !ed->gc) {
+	if (!ed || !ed->dpy || !ed->win || !ed->gc || !ed->pen_active || ed->pen_len < 2 || !ed->pen_points) {
 		return;
 	}
-	sx0 = ed->canvas_x + (int)(x0 * ed->scale);
-	sy0 = ed->canvas_y + (int)(y0 * ed->scale);
-	sx1 = ed->canvas_x + (int)(x1 * ed->scale);
-	sy1 = ed->canvas_y + (int)(y1 * ed->scale);
 	lw = (int)(ed->pen_thickness * ed->scale);
 	if (lw < 1) {
 		lw = 1;
 	}
 	XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->pen_color & 0xffffff));
 	XSetLineAttributes(ed->dpy, ed->gc, (unsigned int)lw, LineSolid, CapRound, JoinRound);
-	XDrawLine(ed->dpy, ed->win, ed->gc, sx0, sy0, sx1, sy1);
+	for (i = 1; i < ed->pen_len; i++) {
+		int x0 = ed->canvas_x + (int)(ed->pen_points[(i - 1) * 2 + 0] * ed->scale);
+		int y0 = ed->canvas_y + (int)(ed->pen_points[(i - 1) * 2 + 1] * ed->scale);
+		int x1 = ed->canvas_x + (int)(ed->pen_points[i * 2 + 0] * ed->scale);
+		int y1 = ed->canvas_y + (int)(ed->pen_points[i * 2 + 1] * ed->scale);
+		XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
+	}
 	XSetLineAttributes(ed->dpy, ed->gc, 0, LineSolid, CapButt, JoinMiter);
 }
 
@@ -1826,11 +1825,6 @@ render_frame(struct editor_state *ed)
 		ed->raster_dirty = 1;
 	}
 
-	if (ed->pen_active && ed->pen_len > 0) {
-		draw_pen_points(&ed->preview, ed->pen_points, ed->pen_len, ed->pen_thickness, (unsigned int)ed->pen_color);
-		ed->raster_dirty = 1;
-	}
-
 	if (ed->raster_dirty) {
 		render_to_ximg(ed, &ed->preview);
 		ed->raster_dirty = 0;
@@ -1914,6 +1908,7 @@ render_frame(struct editor_state *ed)
 	if (ed->show_help) {
 		draw_help_overlay(ed);
 	}
+	draw_pen_overlay(ed);
 	XFlush(ed->dpy);
 }
 
@@ -3054,7 +3049,6 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 	if (bev->y >= ed->win_h - ed->status_h - ed->status_pad) {
 		ed->toolbar_hover = toolbar_tool_index_at_x(ed, bev->x);
 		tool_from_toolbar_x(ed, bev->x);
-		ed->raster_dirty = 1;
 		return;
 	}
 	set_cursor_from_xy(ed, bev->x, bev->y);
@@ -3192,17 +3186,9 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 		}
 	}
 	if (ed->tool == TOOL_PEN && ed->pen_active) {
-		int prev_len = ed->pen_len;
 		if (append_pen_point(ed, ed->cursor_x, ed->cursor_y) != 0) {
 			fprintf(stderr, "s2: out of memory for pen tool\n");
 			reset_pen_input(ed);
-		} else if (ed->pen_len > prev_len && ed->pen_len >= 2) {
-			draw_pen_segment_overlay(ed,
-			                      ed->pen_points[(ed->pen_len - 2) * 2 + 0],
-			                      ed->pen_points[(ed->pen_len - 2) * 2 + 1],
-			                      ed->pen_points[(ed->pen_len - 1) * 2 + 0],
-			                      ed->pen_points[(ed->pen_len - 1) * 2 + 1]);
-			XFlush(ed->dpy);
 		}
 	}
 	if (ed->mouse_b1_down && (ed->cursor_x != oldx || ed->cursor_y != oldy)) {
@@ -3346,7 +3332,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 			break;
 		case MotionNotify:
 			handle_motion(&ed, &ev.xmotion);
-			if (ed.drag_active || ed.anchor_active || ed.text_mode || ed.pen_active || ed.tool == TOOL_PICKER ||
+			if (ed.drag_active || ed.anchor_active || ed.text_mode || ed.tool == TOOL_PICKER ||
 			    ev.xmotion.y >= ed.win_h - ed.status_h) {
 				render_frame(&ed);
 			}
