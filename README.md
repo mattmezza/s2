@@ -4,10 +4,6 @@
 
 `s2` (simple screenshot / suckless screenshots) is a keyboard-first screenshot annotation and redaction tool.
 
-## Status
-
-Early scaffold. See `SPEC.md` for the v1 contract and roadmap.
-
 ## Build
 
 ```sh
