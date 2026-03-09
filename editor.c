@@ -2165,9 +2165,14 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 			int bw;
 			int bh;
 			int scale = a->p0 > 0 ? a->p0 : 1;
-			int extra = scale * 4 + text_bg_padding_for_scale(scale) + TEXT_RENDER_PAD;
 			text_box_metrics(ed, a->x0, a->y0, a->text ? a->text : "", scale, a->p0 < 0, &bx, &by, &bw, &bh);
-			return x >= bx - pad - extra && x <= bx + bw + pad + extra && y >= by - pad - extra && y <= by + bh + pad + extra;
+			if (a->p0 < 0) {
+				return x >= bx - pad && x <= bx + bw + pad && y >= by - pad && y <= by + bh + pad;
+			}
+			{
+				int extra = scale * 4 + text_bg_padding_for_scale(scale) + TEXT_RENDER_PAD;
+				return x >= bx - pad - extra && x <= bx + bw + pad + extra && y >= by - pad - extra && y <= by + bh + pad + extra;
+			}
 		}
 	default:
 		return 0;
