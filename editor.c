@@ -50,6 +50,10 @@
 #define window_padding 16
 #endif
 
+#ifndef max_text_scale
+#define max_text_scale 16
+#endif
+
 enum tool {
 	TOOL_SELECT = 0,
 	TOOL_ARROW,
@@ -1689,8 +1693,7 @@ draw_help_overlay(struct editor_state *ed)
 		"s: select  a: arrow  l: line  n: number  r: rect  o: circle",
 		"t: text  h: highlight  b: blur  p: pen  x: pixelate  c: picker",
 		"Space / left-click: apply tool",
-		"h/j/k/l or arrows: move cursor by 1px",
-		"H/J/K/L: move cursor by 10px",
+		"arrow keys: move cursor by 1px",
 		"[ / ]: adjust size/strength",
 		"f: toggle fill  # + 6 hex: set color  1..9: palette color",
 		"X: cancel pending anchor/pen/text",
@@ -2721,28 +2724,12 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		move_cursor(ed, 1, 0);
 		return 1;
 	}
-	if (sym == XK_k || sym == XK_Up) {
+	if (sym == XK_Up) {
 		move_cursor(ed, 0, -1);
 		return 1;
 	}
-	if (sym == XK_j || sym == XK_Down) {
+	if (sym == XK_Down) {
 		move_cursor(ed, 0, 1);
-		return 1;
-	}
-	if (sym == XK_H) {
-		move_cursor(ed, -10, 0);
-		return 1;
-	}
-	if (sym == XK_L) {
-		move_cursor(ed, 10, 0);
-		return 1;
-	}
-	if (sym == XK_K) {
-		move_cursor(ed, 0, -10);
-		return 1;
-	}
-	if (sym == XK_J) {
-		move_cursor(ed, 0, 10);
 		return 1;
 	}
 
@@ -2798,7 +2785,7 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 				ed->blur_radius += 1;
 			}
 		} else if (ed->tool == TOOL_TEXT) {
-			if (ed->text_scale < 8) {
+			if (ed->text_scale < max_text_scale) {
 				ed->text_scale++;
 			}
 		} else if (ed->thickness_idx < max_t) {
@@ -3247,8 +3234,8 @@ editor_run(const struct app_config *cfg, struct image *img)
 		ed.thickness_idx = tidx;
 	}
 	ed.text_scale = (default_text_scale > 0) ? default_text_scale : 1;
-	if (ed.text_scale > 8) {
-		ed.text_scale = 8;
+	if (ed.text_scale > max_text_scale) {
+		ed.text_scale = max_text_scale;
 	}
 	ed.pixelate_block = default_pixelate_block;
 	if (ed.pixelate_block < 2) {

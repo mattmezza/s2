@@ -149,3 +149,8 @@ Text fill styling in `config.def.h`:
 - `text_fill_padding`: background padding around filled text
 - `text_fill_corner_radius`: rounded corner radius for filled text background
 - `window_padding`: outer margin around canvas/status so bars stay visible at large sizes
+- `max_text_scale`: max text size reachable with `]` in text tool
+
+Keyboard movement:
+
+- Cursor movement now uses arrow keys only (`Left`/`Right`/`Up`/`Down`)
