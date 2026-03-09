@@ -111,6 +111,7 @@ struct editor_state {
 	int should_save;
 	int save_timestamp;
 	int should_copy;
+	int cancelled;
 	enum tool tool;
 	unsigned int color;
 	int fill_mode;
@@ -1259,6 +1260,32 @@ draw_status(struct editor_state *ed)
 }
 
 static void
+draw_pen_segment_overlay(struct editor_state *ed, int x0, int y0, int x1, int y1)
+{
+	int sx0;
+	int sy0;
+	int sx1;
+	int sy1;
+	int lw;
+
+	if (!ed || !ed->dpy || !ed->win || !ed->gc) {
+		return;
+	}
+	sx0 = ed->canvas_x + (int)(x0 * ed->scale);
+	sy0 = ed->canvas_y + (int)(y0 * ed->scale);
+	sx1 = ed->canvas_x + (int)(x1 * ed->scale);
+	sy1 = ed->canvas_y + (int)(y1 * ed->scale);
+	lw = (int)(ed->pen_thickness * ed->scale);
+	if (lw < 1) {
+		lw = 1;
+	}
+	XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->pen_color & 0xffffff));
+	XSetLineAttributes(ed->dpy, ed->gc, (unsigned int)lw, LineSolid, CapRound, JoinRound);
+	XDrawLine(ed->dpy, ed->win, ed->gc, sx0, sy0, sx1, sy1);
+	XSetLineAttributes(ed->dpy, ed->gc, 0, LineSolid, CapButt, JoinMiter);
+}
+
+static void
 render_frame(struct editor_state *ed)
 {
 	if (ed->dirty) {
@@ -2056,6 +2083,7 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 	}
 
 	if (sym == XK_q || sym == XK_Escape) {
+		ed->cancelled = 1;
 		ed->running = 0;
 		return 1;
 	}
@@ -2554,11 +2582,18 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 		}
 	}
 	if (ed->tool == TOOL_PEN && ed->pen_active) {
+		int prev_len = ed->pen_len;
 		if (append_pen_point(ed, ed->cursor_x, ed->cursor_y) != 0) {
 			fprintf(stderr, "s2: out of memory for pen tool\n");
 			reset_pen_input(ed);
+		} else if (ed->pen_len > prev_len && ed->pen_len >= 2) {
+			draw_pen_segment_overlay(ed,
+			                      ed->pen_points[(ed->pen_len - 2) * 2 + 0],
+			                      ed->pen_points[(ed->pen_len - 2) * 2 + 1],
+			                      ed->pen_points[(ed->pen_len - 1) * 2 + 0],
+			                      ed->pen_points[(ed->pen_len - 1) * 2 + 1]);
+			XFlush(ed->dpy);
 		}
-		ed->raster_dirty = 1;
 	}
 	if (ed->mouse_b1_down && (ed->cursor_x != oldx || ed->cursor_y != oldy)) {
 		ed->mouse_drag_moved = 1;
@@ -2720,6 +2755,10 @@ editor_run(const struct app_config *cfg, struct image *img)
 			x11_teardown(&ed);
 			return -1;
 		}
+	}
+	if (ed.cancelled) {
+		x11_teardown(&ed);
+		return -1;
 	}
 
 	x11_teardown(&ed);
