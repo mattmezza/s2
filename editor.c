@@ -372,10 +372,10 @@ render_text_pango(const struct editor_state *ed,
 	}
 
 	if (ink_x) {
-		*ink_x = x + TEXT_RENDER_PAD + ink_rect.x;
+		*ink_x = x + TEXT_RENDER_PAD;
 	}
 	if (ink_y) {
-		*ink_y = y + TEXT_RENDER_PAD + ink_rect.y;
+		*ink_y = y + TEXT_RENDER_PAD;
 	}
 	if (ink_w) {
 		*ink_w = ink_rect.width > 0 ? ink_rect.width : w_px;
@@ -2165,13 +2165,19 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 			int bw;
 			int bh;
 			int scale = a->p0 > 0 ? a->p0 : 1;
+			int text_pad;
 			text_box_metrics(ed, a->x0, a->y0, a->text ? a->text : "", scale, a->p0 < 0, &bx, &by, &bw, &bh);
+			text_pad = pad;
+			if (text_pad < 4) {
+				text_pad = 4;
+			}
 			if (a->p0 < 0) {
-				return x >= bx - pad && x <= bx + bw + pad && y >= by - pad && y <= by + bh + pad;
+				return x >= bx - text_pad && x <= bx + bw + text_pad && y >= by - text_pad && y <= by + bh + text_pad;
 			}
 			{
 				int extra = scale * 4 + text_bg_padding_for_scale(scale) + TEXT_RENDER_PAD;
-				return x >= bx - pad - extra && x <= bx + bw + pad + extra && y >= by - pad - extra && y <= by + bh + pad + extra;
+				return x >= bx - text_pad - extra && x <= bx + bw + text_pad + extra && y >= by - text_pad - extra &&
+				       y <= by + bh + text_pad + extra;
 			}
 		}
 	default:
