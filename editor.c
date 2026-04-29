@@ -2620,13 +2620,13 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		return 1;
 	}
 
+	if (ed->text_mode) {
+		return handle_text_mode(ed, kev);
+	}
+
 	if (sym == XK_question || (kn > 0 && kbuf[0] == '?')) {
 		ed->show_help = !ed->show_help;
 		return 1;
-	}
-
-	if (ed->text_mode) {
-		return handle_text_mode(ed, kev);
 	}
 	if (ed->suppress_escape_once && sym == XK_Escape) {
 		ed->suppress_escape_once = 0;
