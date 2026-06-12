@@ -202,6 +202,7 @@ static void text_box_metrics(const struct editor_state *ed,
 			     int *bw,
 			     int *bh);
 static void set_tool(struct editor_state *ed, enum tool tool);
+static int tool_uses_anchor(enum tool tool);
 
 static void
 build_font_pattern(char *out, size_t outlen, int px)
@@ -1746,7 +1747,7 @@ render_frame(struct editor_state *ed)
 
 	img_copy(&ed->preview, &ed->rendered);
 
-	if (ed->anchor_active && !ed->mouse_b1_down) {
+	if (ed->anchor_active) {
 		struct action a;
 		memset(&a, 0, sizeof(a));
 		a.x0 = ed->anchor_x;
@@ -1884,7 +1885,7 @@ render_frame(struct editor_state *ed)
 		               (unsigned int)(sx1 >= sx0 ? (sx1 - sx0) : (sx0 - sx1)),
 		               (unsigned int)(sy1 >= sy0 ? (sy1 - sy0) : (sy0 - sy1)));
 	}
-	if (ed->anchor_active && (ed->tool == TOOL_CIRCLE || ed->tool == TOOL_PIXELATE || ed->tool == TOOL_BLUR)) {
+	if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
 		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
 		int y0 = ed->canvas_y + (int)(ed->anchor_y * ed->scale);
 		int x1 = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
@@ -1893,8 +1894,11 @@ render_frame(struct editor_state *ed)
 		int miny = y0 < y1 ? y0 : y1;
 		unsigned int w = (unsigned int)(x0 < x1 ? (x1 - x0) : (x0 - x1));
 		unsigned int h = (unsigned int)(y0 < y1 ? (y1 - y0) : (y0 - y1));
-		XSetForeground(ed->dpy, ed->gc, ed->status_fg == 0x000000ul ? 0x000000ul : 0xfffffful);
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
 		XDrawRectangle(ed->dpy, ed->win, ed->gc, minx, miny, w, h);
+		if (ed->tool == TOOL_ARROW || ed->tool == TOOL_LINE) {
+			XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
+		}
 	}
 	{
 		int cx = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
@@ -3204,10 +3208,17 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 	    (size_t)ed->selected_idx < ed->actions.cursor) {
 		int dx = ed->cursor_x - ed->drag_origin_x;
 		int dy = ed->cursor_y - ed->drag_origin_y;
-		if (dx != 0 || dy != 0) {
-			ed->drag_dx = dx;
-			ed->drag_dy = dy;
+		if (mev->state & ShiftMask) {
+			int adx = dx < 0 ? -dx : dx;
+			int ady = dy < 0 ? -dy : dy;
+			if (adx >= ady) {
+				dy = 0;
+			} else {
+				dx = 0;
+			}
 		}
+		ed->drag_dx = dx;
+		ed->drag_dy = dy;
 	}
 	if (ed->tool == TOOL_PEN && ed->pen_active) {
 		if (append_pen_point(ed, ed->cursor_x, ed->cursor_y) != 0) {
