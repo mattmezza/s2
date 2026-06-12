@@ -39,6 +39,14 @@
 #define default_blur_radius 2
 #endif
 
+#ifndef default_marker_height
+#define default_marker_height 24
+#endif
+
+#ifndef default_marker_strength
+#define default_marker_strength 40
+#endif
+
 #ifndef text_fill_padding
 #define text_fill_padding 1
 #endif
@@ -68,6 +76,7 @@ enum tool {
 	TOOL_PIXELATE,
 	TOOL_BLUR,
 	TOOL_PICKER,
+	TOOL_MARKER,
 };
 
 enum action_type {
@@ -152,6 +161,7 @@ struct editor_state {
 	int pixelate_block;
 	int blur_radius;
 	int highlight_strength;
+	int marker_height;
 	int cursor_x;
 	int cursor_y;
 	int anchor_active;
@@ -1692,7 +1702,7 @@ push_action(struct action_stack *st, const struct action *in)
 static int
 tool_count(void)
 {
-	return 12;
+	return 13;
 }
 
 static enum tool
@@ -1708,8 +1718,9 @@ tool_by_index(int idx)
 	case 6: return TOOL_CIRCLE;
 	case 7: return TOOL_TEXT;
 	case 8: return TOOL_HIGHLIGHT;
-	case 9: return TOOL_PIXELATE;
-	case 10: return TOOL_BLUR;
+	case 9: return TOOL_MARKER;
+	case 10: return TOOL_PIXELATE;
+	case 11: return TOOL_BLUR;
 	default: return TOOL_PICKER;
 	}
 }
@@ -1727,6 +1738,7 @@ tool_label(enum tool t)
 	case TOOL_CIRCLE: return "CIR";
 	case TOOL_TEXT: return "TXT";
 	case TOOL_HIGHLIGHT: return "HL";
+	case TOOL_MARKER: return "MRK";
 	case TOOL_PIXELATE: return "PXL";
 	case TOOL_BLUR: return "BLR";
 	case TOOL_PICKER: return "PCK";
@@ -1824,10 +1836,11 @@ draw_status(struct editor_state *ed)
 	}
 	snprintf(msg,
 	         sizeof(msg),
-	         "thickness:%d  text-size:%d  hl-strength:%d  pixelate:%d  blur:%d  fill:%s  selected:%d  actions:%lu/%lu%s%s",
+	         "thickness:%d  text-size:%d  hl-strength:%d  marker-h:%d  pixelate:%d  blur:%d  fill:%s  selected:%d  actions:%lu/%lu%s%s",
 	         thickness_presets[ed->thickness_idx],
 	         ed->text_scale,
 	         ed->highlight_strength,
+	         ed->marker_height,
 	         ed->pixelate_block,
 	         ed->blur_radius,
 	         ed->fill_mode ? "on" : "off",
@@ -1918,7 +1931,8 @@ draw_help_overlay(struct editor_state *ed)
 		"Ctrl+V: paste text from clipboard",
 		"Ctrl+Z / Ctrl+Shift+Z: undo/redo",
 		"s: select  a: arrow  l: line  n: number  r: rect  o: circle",
-		"t: text  h: highlight  b: blur  p: pen  x: pixelate  c: picker",
+		"t: text  h: highlight  m: marker  b: blur  p: pen  x: pixelate  c: picker",
+		"marker: drag to highlight text; [ / ] sets band height",
 		"Space / left-click: apply tool",
 		"arrow keys: move cursor by 1px",
 		"[ / ]: adjust size/strength",
@@ -2096,6 +2110,16 @@ render_frame(struct editor_state *ed)
 			apply_action(ed, &ed->preview, &a);
 			draw_rect_guide(&ed->preview, ed->anchor_x, ed->anchor_y, ed->cursor_x, ed->cursor_y, 0xffffff);
 			break;
+		case TOOL_MARKER:
+			{
+				int mh = ed->marker_height > 0 ? ed->marker_height : 1;
+				a.type = ACTION_HIGHLIGHT;
+				a.y0 = ed->anchor_y - mh / 2;
+				a.y1 = ed->anchor_y + mh / 2;
+				a.p0 = default_marker_strength;
+				apply_action(ed, &ed->preview, &a);
+			}
+			break;
 		case TOOL_PIXELATE:
 			a.type = ACTION_PIXELATE;
 			a.p0 = ed->pixelate_block;
@@ -2199,7 +2223,19 @@ render_frame(struct editor_state *ed)
 			         360 * 64);
 		}
 	}
-	if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
+	if (ed->anchor_active && ed->tool == TOOL_MARKER) {
+		int mh = ed->marker_height > 0 ? ed->marker_height : 1;
+		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
+		int x1 = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
+		int yt = ed->canvas_y + (int)((ed->anchor_y - mh / 2) * ed->scale);
+		int yb = ed->canvas_y + (int)((ed->anchor_y + mh / 2) * ed->scale);
+		int minx = x0 < x1 ? x0 : x1;
+		unsigned int w = (unsigned int)(x0 < x1 ? (x1 - x0) : (x0 - x1));
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->color & 0xffffffu));
+		XDrawRectangle(ed->dpy, ed->win, ed->gc, minx, yt, w, (unsigned int)(yb - yt));
+		/* vertical guide at the leading edge showing the band height */
+		XDrawLine(ed->dpy, ed->win, ed->gc, x1, yt, x1, yb);
+	} else if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
 		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
 		int y0 = ed->canvas_y + (int)(ed->anchor_y * ed->scale);
 		int x1 = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
@@ -2213,6 +2249,16 @@ render_frame(struct editor_state *ed)
 		if (ed->tool == TOOL_ARROW || ed->tool == TOOL_LINE) {
 			XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
 		}
+	}
+	if (ed->tool == TOOL_MARKER && !ed->anchor_active) {
+		int mh = ed->marker_height > 0 ? ed->marker_height : 1;
+		int cx = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
+		int yt = ed->canvas_y + (int)((ed->cursor_y - mh / 2) * ed->scale);
+		int yb = ed->canvas_y + (int)((ed->cursor_y + mh / 2) * ed->scale);
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->color & 0xffffffu));
+		XDrawLine(ed->dpy, ed->win, ed->gc, cx, yt, cx, yb);
+		XDrawLine(ed->dpy, ed->win, ed->gc, cx - 3, yt, cx + 3, yt);
+		XDrawLine(ed->dpy, ed->win, ed->gc, cx - 3, yb, cx + 3, yb);
 	}
 	{
 		int cx = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
@@ -2383,9 +2429,10 @@ tool_from_config_value(int value)
 	case 6: return TOOL_CIRCLE;
 	case 7: return TOOL_TEXT;
 	case 8: return TOOL_HIGHLIGHT;
-	case 9: return TOOL_PIXELATE;
-	case 10: return TOOL_BLUR;
-	case 11: return TOOL_PICKER;
+	case 9: return TOOL_MARKER;
+	case 10: return TOOL_PIXELATE;
+	case 11: return TOOL_BLUR;
+	case 12: return TOOL_PICKER;
 	default: return TOOL_ARROW;
 	}
 }
@@ -2786,6 +2833,24 @@ commit_current_tool(struct editor_state *ed)
 		                         ed->cursor_x,
 		                         ed->cursor_y,
 		                         ed->highlight_strength);
+	case TOOL_MARKER:
+		if (!ed->anchor_active) {
+			ed->anchor_active = 1;
+			ed->anchor_x = ed->cursor_x;
+			ed->anchor_y = ed->cursor_y;
+			return 0;
+		}
+		ed->anchor_active = 0;
+		{
+			int mh = ed->marker_height > 0 ? ed->marker_height : 1;
+			return add_simple_action(ed,
+			                         ACTION_HIGHLIGHT,
+			                         ed->anchor_x,
+			                         ed->anchor_y - mh / 2,
+			                         ed->cursor_x,
+			                         ed->anchor_y + mh / 2,
+			                         default_marker_strength);
+		}
 	case TOOL_PICKER:
 		ed->color = draw_sample_color(&ed->rendered, ed->cursor_x, ed->cursor_y);
 		return 0;
@@ -2921,7 +2986,7 @@ static int
 tool_uses_anchor(enum tool tool)
 {
 	return tool == TOOL_ARROW || tool == TOOL_LINE || tool == TOOL_RECT || tool == TOOL_CIRCLE ||
-	       tool == TOOL_HIGHLIGHT || tool == TOOL_PIXELATE || tool == TOOL_BLUR;
+	       tool == TOOL_HIGHLIGHT || tool == TOOL_MARKER || tool == TOOL_PIXELATE || tool == TOOL_BLUR;
 }
 
 static int
@@ -3047,6 +3112,10 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		set_tool(ed, TOOL_BLUR);
 		return 1;
 	}
+	if (sym == XK_m) {
+		set_tool(ed, TOOL_MARKER);
+		return 1;
+	}
 	if (sym == XK_x) {
 		set_tool(ed, TOOL_PIXELATE);
 		return 1;
@@ -3102,6 +3171,10 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 			if (ed->blur_radius > 1) {
 				ed->blur_radius -= 1;
 			}
+		} else if (ed->tool == TOOL_MARKER) {
+			if (ed->marker_height > 4) {
+				ed->marker_height -= 2;
+			}
 		} else if (ed->tool == TOOL_TEXT) {
 			if (ed->text_scale > 1) {
 				ed->text_scale--;
@@ -3123,6 +3196,10 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		} else if (ed->tool == TOOL_BLUR) {
 			if (ed->blur_radius < 16) {
 				ed->blur_radius += 1;
+			}
+		} else if (ed->tool == TOOL_MARKER) {
+			if (ed->marker_height < 400) {
+				ed->marker_height += 2;
 			}
 		} else if (ed->tool == TOOL_TEXT) {
 			if (ed->text_scale < max_text_scale) {
@@ -3711,6 +3788,13 @@ editor_run(const struct app_config *cfg, struct image *img)
 	if (ed.highlight_strength > 100) {
 		ed.highlight_strength = 100;
 	}
+	ed.marker_height = default_marker_height;
+	if (ed.marker_height < 4) {
+		ed.marker_height = 4;
+	}
+	if (ed.marker_height > 400) {
+		ed.marker_height = 400;
+	}
 	ed.fill_mode = default_fill_mode ? 1 : 0;
 	ed.status_h = 28;
 	ed.status_pad = 10;
@@ -3787,7 +3871,8 @@ editor_run(const struct app_config *cfg, struct image *img)
 			break;
 		case MotionNotify:
 			handle_motion(&ed, &ev.xmotion);
-			if (ed.drag_active || ed.rotating || ed.anchor_active || ed.text_mode || ed.tool == TOOL_PICKER ||
+			if (ed.drag_active || ed.rotating || ed.anchor_active || ed.text_mode ||
+			    ed.tool == TOOL_PICKER || ed.tool == TOOL_MARKER ||
 			    ev.xmotion.y >= ed.win_h - ed.status_h) {
 				render_frame(&ed);
 			}

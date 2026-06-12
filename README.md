@@ -94,6 +94,7 @@ maim -s | s2 -i -
 - `o`: circle tool
 - `t`: text tool
 - `h`: highlight tool
+- `m`: marker tool (text highlighter: drag horizontally to highlight a line of text)
 - `b`: blur tool
 - `p`: pen tool (freehand)
 - `n`: number tool (auto-incrementing markers)
@@ -104,6 +105,7 @@ maim -s | s2 -i -
 - `Space` or left click: apply tool action
 - `[` / `]`: thickness, text size, or pixelate block size
 - `[` / `]` on highlight tool changes `hl-strength` (1..100)
+- `[` / `]` on marker tool changes the highlight band height
 - `Ctrl+Z`: undo last action
 - `Ctrl+Shift+Z`: redo
 - `1..9`: select color from palette
@@ -128,6 +130,7 @@ Tool flow:
 - Picker: `Space` samples color under cursor into active color.
 - Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move. Hold `Shift` while dragging to constrain movement to a single axis.
 - Rotation: when a shape or text object is selected, a small round handle appears above its bounding box. Drag the handle to rotate; hold `Shift` to snap to 45° increments. Keyboard `,`/`.` and `<`/`>` also rotate the selection.
+- Marker: a text highlighter. A vertical guide at the cursor shows the band height (adjust with `[` / `]`). Press and drag horizontally to lay down a fixed-height, semi-transparent band in the selected color over a line of text. The band height stays fixed regardless of vertical mouse movement.
 - Pen: click-hold and drag to draw freehand using current thickness.
 - Number: each click places a filled numbered circle (`1`, `2`, `3`, ...) using current color; number size follows text-size.
 
