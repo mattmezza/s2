@@ -1923,6 +1923,9 @@ draw_help_overlay(struct editor_state *ed)
 		"arrow keys: move cursor by 1px",
 		"[ / ]: adjust size/strength",
 		"f: toggle fill  # + 6 hex: set color  1..9: palette color",
+		"select: drag to move (Shift locks to one axis)",
+		"select: drag handle to rotate (Shift snaps 45)",
+		", / . rotate 15deg   < / > rotate 1deg",
 		"X: cancel pending anchor/pen/text",
 		"?: toggle this help",
 	};

@@ -112,6 +112,8 @@ maim -s | s2 -i -
 - `X`: cancel pending anchor or active pen/text input
 - `?`: toggle keybindings help panel
 - `Backspace`/`Delete`: delete selected object
+- `,` / `.`: rotate selected object by 15° (counter/clockwise)
+- `<` / `>`: rotate selected object by 1° (fine)
 
 Text mode note:
 
@@ -124,7 +126,8 @@ Tool flow:
 - Text: click or `Space` enters text input mode; type with live preview; `Enter` or click commits text.
 - Text live-preview: while typing, current text is previewed on image before commit.
 - Picker: `Space` samples color under cursor into active color.
-- Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move.
+- Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move. Hold `Shift` while dragging to constrain movement to a single axis.
+- Rotation: when a shape or text object is selected, a small round handle appears above its bounding box. Drag the handle to rotate; hold `Shift` to snap to 45° increments. Keyboard `,`/`.` and `<`/`>` also rotate the selection.
 - Pen: click-hold and drag to draw freehand using current thickness.
 - Number: each click places a filled numbered circle (`1`, `2`, `3`, ...) using current color; number size follows text-size.
 
@@ -136,7 +139,7 @@ CLI additions:
 
 UI behavior:
 
-- While dragging/selecting anchored tools, a rectangle guide is shown.
+- While placing any anchored tool (arrow, line, rect, circle, highlight, pixelate, blur), a rectangle guide is shown (plus a line guide for arrow/line), during both keyboard and mouse placement.
 - Status is shown in a dedicated bottom bar (not drawn on top of the image).
 - Window/status colors follow a best-effort light/dark preference detection from environment/X resources.
 - Window resize scales image and all objects to fit window canvas.
