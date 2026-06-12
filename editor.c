@@ -88,6 +88,7 @@ enum action_type {
 	ACTION_CIRCLE,
 	ACTION_TEXT,
 	ACTION_HIGHLIGHT,
+	ACTION_MARKER,
 	ACTION_PIXELATE,
 	ACTION_BLUR,
 };
@@ -184,6 +185,7 @@ struct editor_state {
 	int drag_dy;
 	int rotating;
 	int pen_active;
+	int pen_is_marker;
 	int pen_color;
 	int pen_thickness;
 	int *pen_points;
@@ -1037,7 +1039,7 @@ action_bounds(const struct editor_state *ed, const struct action *a, int *minx, 
 		y0 = a->y0 - r;
 		x1 = a->x0 + r;
 		y1 = a->y0 + r;
-	} else if (a->type == ACTION_PEN && a->pen_points && a->pen_len > 0) {
+	} else if ((a->type == ACTION_PEN || a->type == ACTION_MARKER) && a->pen_points && a->pen_len > 0) {
 		x0 = x1 = a->pen_points[0];
 		y0 = y1 = a->pen_points[1];
 		for (i = 1; i < a->pen_len; i++) {
@@ -1076,6 +1078,112 @@ draw_pen_points(struct image *img, const int *points, int len, int thickness, un
 		          thickness,
 		          color);
 	}
+}
+
+/*
+ * Render a freehand highlighter stroke: the thick path is rasterised into a
+ * binary coverage mask first, then blended onto the image exactly once at the
+ * given strength. The single blend keeps overlapping parts of one stroke from
+ * darkening, so it reads like a real highlighter.
+ */
+static void
+draw_marker_stroke(struct image *img, const int *points, int len, int thickness, unsigned int color, int strength)
+{
+	struct image mask;
+	int *shifted;
+	int minx;
+	int miny;
+	int maxx;
+	int maxy;
+	int rad;
+	int w;
+	int h;
+	int x;
+	int y;
+	int i;
+	unsigned int r;
+	unsigned int g;
+	unsigned int b;
+	unsigned int s;
+	unsigned int inv;
+
+	if (!img || !img->pixels || !points || len <= 0) {
+		return;
+	}
+	if (thickness < 1) {
+		thickness = 1;
+	}
+	rad = thickness / 2 + 1;
+	minx = maxx = points[0];
+	miny = maxy = points[1];
+	for (i = 1; i < len; i++) {
+		int px = points[i * 2 + 0];
+		int py = points[i * 2 + 1];
+		if (px < minx) minx = px;
+		if (px > maxx) maxx = px;
+		if (py < miny) miny = py;
+		if (py > maxy) maxy = py;
+	}
+	minx -= rad;
+	miny -= rad;
+	maxx += rad;
+	maxy += rad;
+	if (minx < 0) minx = 0;
+	if (miny < 0) miny = 0;
+	if (maxx > img->width - 1) maxx = img->width - 1;
+	if (maxy > img->height - 1) maxy = img->height - 1;
+	w = maxx - minx + 1;
+	h = maxy - miny + 1;
+	if (w < 1 || h < 1) {
+		return;
+	}
+
+	memset(&mask, 0, sizeof(mask));
+	mask.width = w;
+	mask.height = h;
+	mask.len = (size_t)w * (size_t)h * 4u;
+	mask.pixels = calloc(1, mask.len);
+	if (!mask.pixels) {
+		return;
+	}
+	shifted = malloc((size_t)len * 2u * sizeof(*shifted));
+	if (!shifted) {
+		free(mask.pixels);
+		return;
+	}
+	for (i = 0; i < len; i++) {
+		shifted[i * 2 + 0] = points[i * 2 + 0] - minx;
+		shifted[i * 2 + 1] = points[i * 2 + 1] - miny;
+	}
+	draw_pen_points(&mask, shifted, len, thickness, 0xffffffu);
+
+	if (strength < 1) {
+		strength = 1;
+	}
+	if (strength > 100) {
+		strength = 100;
+	}
+	s = (unsigned int)strength;
+	inv = 100u - s;
+	r = (color >> 16) & 0xffu;
+	g = (color >> 8) & 0xffu;
+	b = color & 0xffu;
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++) {
+			unsigned char *mp = mask.pixels + ((size_t)y * (size_t)w + (size_t)x) * 4u;
+			unsigned char *dp;
+			if (mp[3] <= 8) {
+				continue;
+			}
+			dp = img->pixels + ((size_t)(y + miny) * (size_t)img->width + (size_t)(x + minx)) * 4u;
+			dp[0] = (unsigned char)(((unsigned int)dp[0] * inv + r * s) / 100u);
+			dp[1] = (unsigned char)(((unsigned int)dp[1] * inv + g * s) / 100u);
+			dp[2] = (unsigned char)(((unsigned int)dp[2] * inv + b * s) / 100u);
+			dp[3] = 0xff;
+		}
+	}
+	free(shifted);
+	free(mask.pixels);
 }
 
 static int
@@ -1318,6 +1426,7 @@ reset_pen_input(struct editor_state *ed)
 		return;
 	}
 	ed->pen_active = 0;
+	ed->pen_is_marker = 0;
 	ed->pen_len = 0;
 }
 
@@ -1405,6 +1514,9 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 		break;
 	case ACTION_HIGHLIGHT:
 		draw_highlight(img, a->x0, a->y0, a->x1, a->y1, a->color, a->p0);
+		break;
+	case ACTION_MARKER:
+		draw_marker_stroke(img, a->pen_points, a->pen_len, a->p0, a->color, default_marker_strength);
 		break;
 	case ACTION_PIXELATE:
 		draw_pixelate(img, a->x0, a->y0, a->x1, a->y1, a->p0);
@@ -1902,12 +2014,30 @@ draw_pen_overlay(struct editor_state *ed)
 	if (!ed || !ed->dpy || !ed->win || !ed->gc || !ed->pen_active || ed->pen_len < 2 || !ed->pen_points) {
 		return;
 	}
-	lw = (int)(ed->pen_thickness * ed->scale);
-	if (lw < 1) {
-		lw = 1;
+	/*
+	 * For the pen, show the actual thick stroke as it is drawn. The marker's
+	 * translucent band is baked into the preview image instead, so here we
+	 * only add the centreline guide below for it.
+	 */
+	if (!ed->pen_is_marker) {
+		lw = (int)(ed->pen_thickness * ed->scale);
+		if (lw < 1) {
+			lw = 1;
+		}
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->pen_color & 0xffffff));
+		XSetLineAttributes(ed->dpy, ed->gc, (unsigned int)lw, LineSolid, CapRound, JoinRound);
+		for (i = 1; i < ed->pen_len; i++) {
+			int x0 = ed->canvas_x + (int)(ed->pen_points[(i - 1) * 2 + 0] * ed->scale);
+			int y0 = ed->canvas_y + (int)(ed->pen_points[(i - 1) * 2 + 1] * ed->scale);
+			int x1 = ed->canvas_x + (int)(ed->pen_points[i * 2 + 0] * ed->scale);
+			int y1 = ed->canvas_y + (int)(ed->pen_points[i * 2 + 1] * ed->scale);
+			XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
+		}
+		XSetLineAttributes(ed->dpy, ed->gc, 0, LineSolid, CapButt, JoinMiter);
 	}
-	XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->pen_color & 0xffffff));
-	XSetLineAttributes(ed->dpy, ed->gc, (unsigned int)lw, LineSolid, CapRound, JoinRound);
+
+	/* thin guide line tracking the actual freehand path (pen and marker) */
+	XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
 	for (i = 1; i < ed->pen_len; i++) {
 		int x0 = ed->canvas_x + (int)(ed->pen_points[(i - 1) * 2 + 0] * ed->scale);
 		int y0 = ed->canvas_y + (int)(ed->pen_points[(i - 1) * 2 + 1] * ed->scale);
@@ -1915,7 +2045,6 @@ draw_pen_overlay(struct editor_state *ed)
 		int y1 = ed->canvas_y + (int)(ed->pen_points[i * 2 + 1] * ed->scale);
 		XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
 	}
-	XSetLineAttributes(ed->dpy, ed->gc, 0, LineSolid, CapButt, JoinMiter);
 }
 
 static void
@@ -2110,16 +2239,6 @@ render_frame(struct editor_state *ed)
 			apply_action(ed, &ed->preview, &a);
 			draw_rect_guide(&ed->preview, ed->anchor_x, ed->anchor_y, ed->cursor_x, ed->cursor_y, 0xffffff);
 			break;
-		case TOOL_MARKER:
-			{
-				int mh = ed->marker_height > 0 ? ed->marker_height : 1;
-				a.type = ACTION_HIGHLIGHT;
-				a.y0 = ed->anchor_y - mh / 2;
-				a.y1 = ed->anchor_y + mh / 2;
-				a.p0 = default_marker_strength;
-				apply_action(ed, &ed->preview, &a);
-			}
-			break;
 		case TOOL_PIXELATE:
 			a.type = ACTION_PIXELATE;
 			a.p0 = ed->pixelate_block;
@@ -2159,6 +2278,16 @@ render_frame(struct editor_state *ed)
 			draw_fill_rounded_rect(&ed->preview, bx, by, bw, bh, radius, bg);
 		}
 		draw_text_xft(ed, &ed->preview, ed->text_x, ed->text_y, ed->text_buf, ed->text_scale, ed->color);
+		ed->raster_dirty = 1;
+	}
+
+	if (ed->pen_active && ed->pen_is_marker && ed->pen_len > 0) {
+		draw_marker_stroke(&ed->preview,
+		                   ed->pen_points,
+		                   ed->pen_len,
+		                   ed->pen_thickness,
+		                   (unsigned int)ed->pen_color,
+		                   default_marker_strength);
 		ed->raster_dirty = 1;
 	}
 
@@ -2223,19 +2352,7 @@ render_frame(struct editor_state *ed)
 			         360 * 64);
 		}
 	}
-	if (ed->anchor_active && ed->tool == TOOL_MARKER) {
-		int mh = ed->marker_height > 0 ? ed->marker_height : 1;
-		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
-		int x1 = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
-		int yt = ed->canvas_y + (int)((ed->anchor_y - mh / 2) * ed->scale);
-		int yb = ed->canvas_y + (int)((ed->anchor_y + mh / 2) * ed->scale);
-		int minx = x0 < x1 ? x0 : x1;
-		unsigned int w = (unsigned int)(x0 < x1 ? (x1 - x0) : (x0 - x1));
-		XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->color & 0xffffffu));
-		XDrawRectangle(ed->dpy, ed->win, ed->gc, minx, yt, w, (unsigned int)(yb - yt));
-		/* vertical guide at the leading edge showing the band height */
-		XDrawLine(ed->dpy, ed->win, ed->gc, x1, yt, x1, yb);
-	} else if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
+	if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
 		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
 		int y0 = ed->canvas_y + (int)(ed->anchor_y * ed->scale);
 		int x1 = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
@@ -2250,7 +2367,7 @@ render_frame(struct editor_state *ed)
 			XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
 		}
 	}
-	if (ed->tool == TOOL_MARKER && !ed->anchor_active) {
+	if (ed->tool == TOOL_MARKER && !ed->pen_active) {
 		int mh = ed->marker_height > 0 ? ed->marker_height : 1;
 		int cx = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
 		int yt = ed->canvas_y + (int)((ed->cursor_y - mh / 2) * ed->scale);
@@ -2522,6 +2639,7 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 	case ACTION_LINE:
 		return distance_sq_point_segment(x, y, a->x0, a->y0, a->x1, a->y1) <= pad * pad;
 	case ACTION_PEN:
+	case ACTION_MARKER:
 		if (a->pen_points && a->pen_len > 0) {
 			int i;
 			if (a->pen_len == 1) {
@@ -2648,7 +2766,7 @@ action_move_by(struct action *a, int dx, int dy)
 	if (!a) {
 		return;
 	}
-	if (a->type == ACTION_PEN && a->pen_points && a->pen_len > 0) {
+	if ((a->type == ACTION_PEN || a->type == ACTION_MARKER) && a->pen_points && a->pen_len > 0) {
 		for (i = 0; i < a->pen_len; i++) {
 			a->pen_points[i * 2 + 0] += dx;
 			a->pen_points[i * 2 + 1] += dy;
@@ -2834,23 +2952,7 @@ commit_current_tool(struct editor_state *ed)
 		                         ed->cursor_y,
 		                         ed->highlight_strength);
 	case TOOL_MARKER:
-		if (!ed->anchor_active) {
-			ed->anchor_active = 1;
-			ed->anchor_x = ed->cursor_x;
-			ed->anchor_y = ed->cursor_y;
-			return 0;
-		}
-		ed->anchor_active = 0;
-		{
-			int mh = ed->marker_height > 0 ? ed->marker_height : 1;
-			return add_simple_action(ed,
-			                         ACTION_HIGHLIGHT,
-			                         ed->anchor_x,
-			                         ed->anchor_y - mh / 2,
-			                         ed->cursor_x,
-			                         ed->anchor_y + mh / 2,
-			                         default_marker_strength);
-		}
+		return 0;
 	case TOOL_PICKER:
 		ed->color = draw_sample_color(&ed->rendered, ed->cursor_x, ed->cursor_y);
 		return 0;
@@ -2986,7 +3088,7 @@ static int
 tool_uses_anchor(enum tool tool)
 {
 	return tool == TOOL_ARROW || tool == TOOL_LINE || tool == TOOL_RECT || tool == TOOL_CIRCLE ||
-	       tool == TOOL_HIGHLIGHT || tool == TOOL_MARKER || tool == TOOL_PIXELATE || tool == TOOL_BLUR;
+	       tool == TOOL_HIGHLIGHT || tool == TOOL_PIXELATE || tool == TOOL_BLUR;
 }
 
 static int
@@ -3584,10 +3686,12 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 		ed->drag_dy = 0;
 		return;
 	}
-	if (ed->tool == TOOL_PEN) {
+	if (ed->tool == TOOL_PEN || ed->tool == TOOL_MARKER) {
 		ed->pen_active = 1;
+		ed->pen_is_marker = (ed->tool == TOOL_MARKER);
 		ed->pen_color = (int)ed->color;
-		ed->pen_thickness = thickness_presets[ed->thickness_idx];
+		ed->pen_thickness = ed->pen_is_marker ? (ed->marker_height > 0 ? ed->marker_height : 1)
+		                                       : thickness_presets[ed->thickness_idx];
 		ed->pen_len = 0;
 		if (append_pen_point(ed, ed->cursor_x, ed->cursor_y) != 0) {
 			fprintf(stderr, "s2: out of memory for pen tool\n");
@@ -3646,11 +3750,11 @@ handle_button_release(struct editor_state *ed, XButtonEvent *bev)
 		ed->raster_dirty = 1;
 		return;
 	}
-	if (ed->tool == TOOL_PEN) {
+	if (ed->tool == TOOL_PEN || ed->tool == TOOL_MARKER) {
 		if (ed->pen_active && ed->pen_len > 0) {
 			struct action a;
 			memset(&a, 0, sizeof(a));
-			a.type = ACTION_PEN;
+			a.type = ed->pen_is_marker ? ACTION_MARKER : ACTION_PEN;
 			a.color = (unsigned int)ed->pen_color;
 			a.p0 = ed->pen_thickness;
 			a.pen_points = ed->pen_points;
@@ -3717,7 +3821,7 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 		ed->drag_dx = dx;
 		ed->drag_dy = dy;
 	}
-	if (ed->tool == TOOL_PEN && ed->pen_active) {
+	if ((ed->tool == TOOL_PEN || ed->tool == TOOL_MARKER) && ed->pen_active) {
 		if (append_pen_point(ed, ed->cursor_x, ed->cursor_y) != 0) {
 			fprintf(stderr, "s2: out of memory for pen tool\n");
 			reset_pen_input(ed);
