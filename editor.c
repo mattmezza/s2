@@ -120,6 +120,7 @@ struct editor_state {
 	Window win;
 	Pixmap backbuf;
 	Cursor cursor;
+	Cursor cursor_text;
 	GC gc;
 	XImage *ximg;
 	int status_h;
@@ -2006,48 +2007,6 @@ draw_status(struct editor_state *ed)
 }
 
 static void
-draw_pen_overlay(struct editor_state *ed)
-{
-	int i;
-	int lw;
-
-	if (!ed || !ed->dpy || !ed->win || !ed->gc || !ed->pen_active || ed->pen_len < 2 || !ed->pen_points) {
-		return;
-	}
-	/*
-	 * For the pen, show the actual thick stroke as it is drawn. The marker's
-	 * translucent band is baked into the preview image instead, so here we
-	 * only add the centreline guide below for it.
-	 */
-	if (!ed->pen_is_marker) {
-		lw = (int)(ed->pen_thickness * ed->scale);
-		if (lw < 1) {
-			lw = 1;
-		}
-		XSetForeground(ed->dpy, ed->gc, (unsigned long)(ed->pen_color & 0xffffff));
-		XSetLineAttributes(ed->dpy, ed->gc, (unsigned int)lw, LineSolid, CapRound, JoinRound);
-		for (i = 1; i < ed->pen_len; i++) {
-			int x0 = ed->canvas_x + (int)(ed->pen_points[(i - 1) * 2 + 0] * ed->scale);
-			int y0 = ed->canvas_y + (int)(ed->pen_points[(i - 1) * 2 + 1] * ed->scale);
-			int x1 = ed->canvas_x + (int)(ed->pen_points[i * 2 + 0] * ed->scale);
-			int y1 = ed->canvas_y + (int)(ed->pen_points[i * 2 + 1] * ed->scale);
-			XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
-		}
-		XSetLineAttributes(ed->dpy, ed->gc, 0, LineSolid, CapButt, JoinMiter);
-	}
-
-	/* thin guide line tracking the actual freehand path (pen and marker) */
-	XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
-	for (i = 1; i < ed->pen_len; i++) {
-		int x0 = ed->canvas_x + (int)(ed->pen_points[(i - 1) * 2 + 0] * ed->scale);
-		int y0 = ed->canvas_y + (int)(ed->pen_points[(i - 1) * 2 + 1] * ed->scale);
-		int x1 = ed->canvas_x + (int)(ed->pen_points[i * 2 + 0] * ed->scale);
-		int y1 = ed->canvas_y + (int)(ed->pen_points[i * 2 + 1] * ed->scale);
-		XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
-	}
-}
-
-static void
 draw_help_overlay(struct editor_state *ed)
 {
 	static const char *lines[] = {
@@ -2281,13 +2240,21 @@ render_frame(struct editor_state *ed)
 		ed->raster_dirty = 1;
 	}
 
-	if (ed->pen_active && ed->pen_is_marker && ed->pen_len > 0) {
-		draw_marker_stroke(&ed->preview,
-		                   ed->pen_points,
-		                   ed->pen_len,
-		                   ed->pen_thickness,
-		                   (unsigned int)ed->pen_color,
-		                   default_marker_strength);
+	if (ed->pen_active && ed->pen_len > 0) {
+		if (ed->pen_is_marker) {
+			draw_marker_stroke(&ed->preview,
+			                   ed->pen_points,
+			                   ed->pen_len,
+			                   ed->pen_thickness,
+			                   (unsigned int)ed->pen_color,
+			                   default_marker_strength);
+		} else {
+			draw_pen_points(&ed->preview,
+			                ed->pen_points,
+			                ed->pen_len,
+			                ed->pen_thickness,
+			                (unsigned int)ed->pen_color);
+		}
 		ed->raster_dirty = 1;
 	}
 
@@ -2389,7 +2356,6 @@ render_frame(struct editor_state *ed)
 	if (ed->show_help) {
 		draw_help_overlay(ed);
 	}
-	draw_pen_overlay(ed);
 	XFlush(ed->dpy);
 }
 
@@ -2408,6 +2374,20 @@ parse_hex_color(const char *s, unsigned int *out)
 	}
 	*out = (unsigned int)v;
 	return 0;
+}
+
+static void
+update_cursor(struct editor_state *ed)
+{
+	Cursor c;
+
+	if (!ed || !ed->dpy || !ed->win) {
+		return;
+	}
+	c = (ed->tool == TOOL_MARKER && ed->cursor_text) ? ed->cursor_text : ed->cursor;
+	if (c) {
+		XDefineCursor(ed->dpy, ed->win, c);
+	}
 }
 
 static void
@@ -2434,6 +2414,7 @@ set_tool(struct editor_state *ed, enum tool tool)
 	clear_text_mode(ed);
 	reset_pen_input(ed);
 	ed->color_mode = 0;
+	update_cursor(ed);
 }
 
 static int
@@ -3461,6 +3442,7 @@ x11_setup(struct editor_state *ed)
 	                           (unsigned int)ed->win_h,
 	                           (unsigned int)depth);
 	ed->cursor = XCreateFontCursor(ed->dpy, XC_crosshair);
+	ed->cursor_text = XCreateFontCursor(ed->dpy, XC_xterm);
 	if (ed->cursor) {
 		XDefineCursor(ed->dpy, ed->win, ed->cursor);
 	}
@@ -3531,6 +3513,10 @@ x11_teardown(struct editor_state *ed)
 	if (ed->cursor) {
 		XFreeCursor(ed->dpy, ed->cursor);
 		ed->cursor = 0;
+	}
+	if (ed->cursor_text) {
+		XFreeCursor(ed->dpy, ed->cursor_text);
+		ed->cursor_text = 0;
 	}
 	if (ed->xic) {
 		XDestroyIC(ed->xic);
@@ -3931,6 +3917,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 	if (ed.xic) {
 		XSetICFocus(ed.xic);
 	}
+	update_cursor(&ed);
 
 	render_frame(&ed);
 	while (ed.running) {
@@ -3976,7 +3963,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 		case MotionNotify:
 			handle_motion(&ed, &ev.xmotion);
 			if (ed.drag_active || ed.rotating || ed.anchor_active || ed.text_mode ||
-			    ed.tool == TOOL_PICKER || ed.tool == TOOL_MARKER ||
+			    ed.pen_active || ed.tool == TOOL_PICKER || ed.tool == TOOL_MARKER ||
 			    ev.xmotion.y >= ed.win_h - ed.status_h) {
 				render_frame(&ed);
 			}

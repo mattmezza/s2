@@ -130,9 +130,8 @@ Tool flow:
 - Picker: `Space` samples color under cursor into active color.
 - Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move. Hold `Shift` while dragging to constrain movement to a single axis.
 - Rotation: when a shape or text object is selected, a small round handle appears above its bounding box. Drag the handle to rotate; hold `Shift` to snap to 45° increments. Keyboard `,`/`.` and `<`/`>` also rotate the selection.
-- Marker: a freehand text highlighter (like the pen). A vertical guide at the cursor shows the band height (adjust with `[` / `]`). Press and drag along the text to lay down a semi-transparent stroke of that height in the selected color; the stroke follows your free movement and overlapping parts of a single stroke do not darken (single-blend highlighter look).
-- Pen: click-hold and drag to draw freehand using current thickness.
-- Freehand guide: while drawing with the pen or marker, a thin guide line traces the actual path you are drawing (it follows your free movement, not a bounding box).
+- Marker: a freehand text highlighter (like the pen). The cursor becomes a text I-beam while the tool is active. A vertical guide at the cursor shows the band height (adjust with `[` / `]`). Press and drag along the text to lay down a semi-transparent stroke of that height in the selected color; the stroke follows your free movement and overlapping parts of a single stroke do not darken (single-blend highlighter look).
+- Pen: click-hold and drag to draw freehand using current thickness. Both pen and marker paint live into the canvas as you drag.
 - Number: each click places a filled numbered circle (`1`, `2`, `3`, ...) using current color; number size follows text-size.
 
 CLI additions:
