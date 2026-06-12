@@ -113,7 +113,7 @@ maim -s | s2 -i -
 - `f`: toggle fill mode (filled circles + text background with inverse contrast)
 - `X`: cancel pending anchor or active pen/text input
 - `?`: toggle keybindings help panel
-- `Backspace`/`Delete`: delete selected object
+- `Backspace`/`Delete`: delete selected object(s)
 - `,` / `.`: rotate selected object by 15° (counter/clockwise)
 - `<` / `>`: rotate selected object by 1° (fine)
 
@@ -129,6 +129,7 @@ Tool flow:
 - Text live-preview: while typing, current text is previewed on image before commit.
 - Picker: `Space` samples color under cursor into active color.
 - Selection: click object to select (shows configurable bounding box), drag moves only the bbox preview until release, then commits object move. Hold `Shift` while dragging to constrain movement to a single axis.
+- Marquee multi-selection: in select mode, drag from an empty area to draw a selection rectangle; every object whose bounding box is fully or partially inside the rectangle is selected. With multiple objects selected you can drag any of them to move the whole group, or press `Backspace`/`Delete` to remove them all at once.
 - Rotation: when a shape or text object is selected, a small round handle appears above its bounding box. Drag the handle to rotate; hold `Shift` to snap to 45° increments. Keyboard `,`/`.` and `<`/`>` also rotate the selection.
 - Marker: a freehand text highlighter (like the pen). The cursor becomes a text I-beam while the tool is active. A vertical guide at the cursor shows the band height (adjust with `[` / `]`). Press and drag along the text to lay down a semi-transparent stroke of that height in the selected color; the stroke follows your free movement and overlapping parts of a single stroke do not darken (single-blend highlighter look).
 - Pen: click-hold and drag to draw freehand using current thickness. Both pen and marker paint live into the canvas as you drag.

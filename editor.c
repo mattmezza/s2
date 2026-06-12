@@ -179,6 +179,12 @@ struct editor_state {
 	int mouse_anchor_set_on_press;
 	int mouse_drag_moved;
 	int selected_idx;
+	int *sel;
+	int sel_len;
+	int sel_cap;
+	int marquee_active;
+	int marquee_x;
+	int marquee_y;
 	int drag_active;
 	int drag_origin_x;
 	int drag_origin_y;
@@ -224,6 +230,7 @@ static void apply_action_rotated(struct editor_state *ed, struct image *img, con
 static int action_is_rotatable(enum action_type t);
 static void action_center(const struct editor_state *ed, const struct action *a, double *cx, double *cy);
 static void rotate_selected_by(struct editor_state *ed, int delta);
+static void sel_clear(struct editor_state *ed);
 
 static void
 build_font_pattern(char *out, size_t outlen, int px)
@@ -1957,7 +1964,7 @@ draw_status(struct editor_state *ed)
 	         ed->pixelate_block,
 	         ed->blur_radius,
 	         ed->fill_mode ? "on" : "off",
-	         ed->selected_idx,
+	         ed->sel_len,
 	         (unsigned long)ed->actions.cursor,
 	         (unsigned long)ed->actions.len,
 	         ed->text_mode ? "  text:" : "",
@@ -2025,8 +2032,10 @@ draw_help_overlay(struct editor_state *ed)
 		"arrow keys: move cursor by 1px",
 		"[ / ]: adjust size/strength",
 		"f: toggle fill  # + 6 hex: set color  1..9: palette color",
+		"select: click object, or drag empty area to box-select many",
 		"select: drag to move (Shift locks to one axis)",
 		"select: drag handle to rotate (Shift snaps 45)",
+		"Backspace/Del: remove all selected objects",
 		", / . rotate 15deg   < / > rotate 1deg",
 		"X: cancel pending anchor/pen/text",
 		"?: toggle this help",
@@ -2287,37 +2296,57 @@ render_frame(struct editor_state *ed)
 	          (unsigned int)ed->win_h,
 	          0,
 	          0);
-	if (ed->selected_idx >= 0 && (size_t)ed->selected_idx < ed->actions.cursor) {
-		struct action *sa = &ed->actions.items[ed->selected_idx];
-		int corners[8];
-		int handle[2];
-		int i;
-		selection_geometry(ed, sa, corners, handle);
+	{
+		int k;
 		XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
-		for (i = 0; i < 4; i++) {
-			int j = (i + 1) % 4;
-			XDrawLine(ed->dpy,
-			          ed->win,
-			          ed->gc,
-			          corners[i * 2 + 0],
-			          corners[i * 2 + 1],
-			          corners[j * 2 + 0],
-			          corners[j * 2 + 1]);
+		for (k = 0; k < ed->sel_len; k++) {
+			struct action *sa;
+			int corners[8];
+			int handle[2];
+			int i;
+			if (ed->sel[k] < 0 || (size_t)ed->sel[k] >= ed->actions.cursor) {
+				continue;
+			}
+			sa = &ed->actions.items[ed->sel[k]];
+			selection_geometry(ed, sa, corners, handle);
+			for (i = 0; i < 4; i++) {
+				int j = (i + 1) % 4;
+				XDrawLine(ed->dpy,
+				          ed->win,
+				          ed->gc,
+				          corners[i * 2 + 0],
+				          corners[i * 2 + 1],
+				          corners[j * 2 + 0],
+				          corners[j * 2 + 1]);
+			}
+			/* rotation handle only when a single object is selected */
+			if (ed->sel_len == 1 && action_is_rotatable(sa->type)) {
+				int tmx = (corners[0] + corners[2]) / 2;
+				int tmy = (corners[1] + corners[3]) / 2;
+				XDrawLine(ed->dpy, ed->win, ed->gc, tmx, tmy, handle[0], handle[1]);
+				XDrawArc(ed->dpy,
+				         ed->win,
+				         ed->gc,
+				         handle[0] - ROTATE_HANDLE_RADIUS,
+				         handle[1] - ROTATE_HANDLE_RADIUS,
+				         (unsigned int)(ROTATE_HANDLE_RADIUS * 2),
+				         (unsigned int)(ROTATE_HANDLE_RADIUS * 2),
+				         0,
+				         360 * 64);
+			}
 		}
-		if (action_is_rotatable(sa->type)) {
-			int tmx = (corners[0] + corners[2]) / 2;
-			int tmy = (corners[1] + corners[3]) / 2;
-			XDrawLine(ed->dpy, ed->win, ed->gc, tmx, tmy, handle[0], handle[1]);
-			XDrawArc(ed->dpy,
-			         ed->win,
-			         ed->gc,
-			         handle[0] - ROTATE_HANDLE_RADIUS,
-			         handle[1] - ROTATE_HANDLE_RADIUS,
-			         (unsigned int)(ROTATE_HANDLE_RADIUS * 2),
-			         (unsigned int)(ROTATE_HANDLE_RADIUS * 2),
-			         0,
-			         360 * 64);
-		}
+	}
+	if (ed->marquee_active) {
+		int x0 = ed->canvas_x + (int)(ed->marquee_x * ed->scale);
+		int y0 = ed->canvas_y + (int)(ed->marquee_y * ed->scale);
+		int x1 = ed->canvas_x + (int)(ed->cursor_x * ed->scale);
+		int y1 = ed->canvas_y + (int)(ed->cursor_y * ed->scale);
+		int minx = x0 < x1 ? x0 : x1;
+		int miny = y0 < y1 ? y0 : y1;
+		unsigned int w = (unsigned int)(x0 < x1 ? (x1 - x0) : (x0 - x1));
+		unsigned int h = (unsigned int)(y0 < y1 ? (y1 - y0) : (y0 - y1));
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
+		XDrawRectangle(ed->dpy, ed->win, ed->gc, minx, miny, w, h);
 	}
 	if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
 		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
@@ -2397,11 +2426,12 @@ set_tool(struct editor_state *ed, enum tool tool)
 		return;
 	}
 	if (ed->tool == TOOL_SELECT && tool != TOOL_SELECT) {
-		ed->selected_idx = -1;
+		sel_clear(ed);
 		ed->drag_active = 0;
 		ed->drag_dx = 0;
 		ed->drag_dy = 0;
 		ed->rotating = 0;
+		ed->marquee_active = 0;
 	}
 	if (ed->tool == TOOL_TEXT && ed->text_mode) {
 		commit_text_input(ed);
@@ -2740,6 +2770,95 @@ find_action_at(const struct editor_state *ed, int x, int y)
 }
 
 static void
+sel_sync_primary(struct editor_state *ed)
+{
+	/* selected_idx mirrors the selection only when exactly one item is held;
+	 * single-object affordances (rotation handle) key off it. */
+	ed->selected_idx = (ed->sel_len == 1) ? ed->sel[0] : -1;
+}
+
+static void
+sel_clear(struct editor_state *ed)
+{
+	ed->sel_len = 0;
+	ed->selected_idx = -1;
+}
+
+static int
+sel_contains(const struct editor_state *ed, int idx)
+{
+	int i;
+	for (i = 0; i < ed->sel_len; i++) {
+		if (ed->sel[i] == idx) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int
+sel_add(struct editor_state *ed, int idx)
+{
+	if (idx < 0 || sel_contains(ed, idx)) {
+		return 0;
+	}
+	if (ed->sel_len == ed->sel_cap) {
+		int new_cap = ed->sel_cap ? ed->sel_cap * 2 : 16;
+		int *p = realloc(ed->sel, (size_t)new_cap * sizeof(*p));
+		if (!p) {
+			return -1;
+		}
+		ed->sel = p;
+		ed->sel_cap = new_cap;
+	}
+	ed->sel[ed->sel_len++] = idx;
+	return 0;
+}
+
+static void
+sel_set_single(struct editor_state *ed, int idx)
+{
+	sel_clear(ed);
+	if (idx >= 0) {
+		sel_add(ed, idx);
+	}
+	sel_sync_primary(ed);
+}
+
+static int
+rects_intersect(int ax0, int ay0, int ax1, int ay1, int bx0, int by0, int bx1, int by1)
+{
+	if (ax1 < bx0 || bx1 < ax0 || ay1 < by0 || by1 < ay0) {
+		return 0;
+	}
+	return 1;
+}
+
+/* select every object whose bounding box intersects the marquee rectangle */
+static void
+selection_from_marquee(struct editor_state *ed, int x0, int y0, int x1, int y1)
+{
+	int rx0 = x0 < x1 ? x0 : x1;
+	int ry0 = y0 < y1 ? y0 : y1;
+	int rx1 = x0 > x1 ? x0 : x1;
+	int ry1 = y0 > y1 ? y0 : y1;
+	int i;
+
+	sel_clear(ed);
+	for (i = 0; i < (int)ed->actions.cursor; i++) {
+		int minx;
+		int miny;
+		int maxx;
+		int maxy;
+		action_bounds(ed, &ed->actions.items[i], &minx, &miny, &maxx, &maxy);
+		if (rects_intersect(minx, miny, maxx, maxy, rx0, ry0, rx1, ry1)) {
+			sel_add(ed, i);
+		}
+	}
+	sel_sync_primary(ed);
+}
+
+static void
 action_move_by(struct action *a, int dx, int dy)
 {
 	int i;
@@ -2773,17 +2892,39 @@ static int
 delete_selected(struct editor_state *ed)
 {
 	int i;
+	int j;
+	int removed = 0;
 
-	if (ed->selected_idx < 0 || (size_t)ed->selected_idx >= ed->actions.cursor) {
+	if (ed->sel_len <= 0) {
 		return -1;
 	}
-	free_action(&ed->actions.items[ed->selected_idx]);
-	for (i = ed->selected_idx; (size_t)i + 1 < ed->actions.cursor; i++) {
-		ed->actions.items[i] = ed->actions.items[i + 1];
+	/* delete highest indices first so the remaining indices stay valid */
+	for (i = 0; i < ed->sel_len; i++) {
+		for (j = i + 1; j < ed->sel_len; j++) {
+			if (ed->sel[j] > ed->sel[i]) {
+				int t = ed->sel[i];
+				ed->sel[i] = ed->sel[j];
+				ed->sel[j] = t;
+			}
+		}
 	}
-	ed->actions.cursor--;
+	for (i = 0; i < ed->sel_len; i++) {
+		int idx = ed->sel[i];
+		if (idx < 0 || (size_t)idx >= ed->actions.cursor) {
+			continue;
+		}
+		free_action(&ed->actions.items[idx]);
+		for (j = idx; (size_t)j + 1 < ed->actions.cursor; j++) {
+			ed->actions.items[j] = ed->actions.items[j + 1];
+		}
+		ed->actions.cursor--;
+		removed++;
+	}
 	ed->actions.len = ed->actions.cursor;
-	ed->selected_idx = -1;
+	sel_clear(ed);
+	if (removed == 0) {
+		return -1;
+	}
 	ed->dirty = 1;
 	ed->raster_dirty = 1;
 	return 0;
@@ -2794,7 +2935,7 @@ commit_current_tool(struct editor_state *ed)
 {
 	switch (ed->tool) {
 	case TOOL_SELECT:
-		ed->selected_idx = find_action_at(ed, ed->cursor_x, ed->cursor_y);
+		sel_set_single(ed, find_action_at(ed, ed->cursor_x, ed->cursor_y));
 		return 0;
 	case TOOL_ARROW:
 		if (!ed->anchor_active) {
@@ -3143,6 +3284,8 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 			}
 		}
 		ed->anchor_active = 0;
+		sel_clear(ed);
+		ed->marquee_active = 0;
 		return 1;
 	}
 	if ((kev->state & ControlMask) && (sym == XK_v || sym == XK_V)) {
@@ -3557,6 +3700,10 @@ x11_teardown(struct editor_state *ed)
 	ed->pen_points = NULL;
 	ed->pen_len = 0;
 	ed->pen_cap = 0;
+	free(ed->sel);
+	ed->sel = NULL;
+	ed->sel_len = 0;
+	ed->sel_cap = 0;
 	free_actions(&ed->actions);
 }
 
@@ -3657,6 +3804,7 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 	ed->mouse_b1_down = 1;
 	ed->mouse_drag_moved = 0;
 	if (ed->tool == TOOL_SELECT) {
+		int hit;
 		if (rotation_handle_hit(ed, bev->x, bev->y)) {
 			ed->rotating = 1;
 			ed->drag_active = 0;
@@ -3664,12 +3812,26 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 			ed->drag_dy = 0;
 			return;
 		}
-		ed->selected_idx = find_action_at(ed, ed->cursor_x, ed->cursor_y);
-		ed->drag_active = (ed->selected_idx >= 0);
-		ed->drag_origin_x = ed->cursor_x;
-		ed->drag_origin_y = ed->cursor_y;
-		ed->drag_dx = 0;
-		ed->drag_dy = 0;
+		hit = find_action_at(ed, ed->cursor_x, ed->cursor_y);
+		if (hit >= 0) {
+			/* clicking an unselected object replaces the selection;
+			 * clicking one already in the set keeps the whole group */
+			if (!sel_contains(ed, hit)) {
+				sel_set_single(ed, hit);
+			}
+			ed->drag_active = 1;
+			ed->drag_origin_x = ed->cursor_x;
+			ed->drag_origin_y = ed->cursor_y;
+			ed->drag_dx = 0;
+			ed->drag_dy = 0;
+		} else {
+			/* empty space: start a rubber-band marquee selection */
+			sel_clear(ed);
+			ed->drag_active = 0;
+			ed->marquee_active = 1;
+			ed->marquee_x = ed->cursor_x;
+			ed->marquee_y = ed->cursor_y;
+		}
 		return;
 	}
 	if (ed->tool == TOOL_PEN || ed->tool == TOOL_MARKER) {
@@ -3722,9 +3884,19 @@ handle_button_release(struct editor_state *ed, XButtonEvent *bev)
 		return;
 	}
 	if (ed->tool == TOOL_SELECT) {
-		if (ed->drag_active && (ed->drag_dx != 0 || ed->drag_dy != 0) && ed->selected_idx >= 0 &&
-		    (size_t)ed->selected_idx < ed->actions.cursor) {
-			action_move_by(&ed->actions.items[ed->selected_idx], ed->drag_dx, ed->drag_dy);
+		if (ed->marquee_active) {
+			if (ed->mouse_drag_moved) {
+				selection_from_marquee(ed, ed->marquee_x, ed->marquee_y, ed->cursor_x, ed->cursor_y);
+			}
+			ed->marquee_active = 0;
+		} else if (ed->drag_active && (ed->drag_dx != 0 || ed->drag_dy != 0)) {
+			int k;
+			for (k = 0; k < ed->sel_len; k++) {
+				int idx = ed->sel[k];
+				if (idx >= 0 && (size_t)idx < ed->actions.cursor) {
+					action_move_by(&ed->actions.items[idx], ed->drag_dx, ed->drag_dy);
+				}
+			}
 			ed->dirty = 1;
 		}
 		ed->drag_active = 0;
@@ -3791,8 +3963,10 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 	if (ed->tool == TOOL_SELECT && ed->rotating) {
 		rotate_selected_to_pointer(ed, mev->x, mev->y, mev->state & ShiftMask);
 	}
-	if (ed->tool == TOOL_SELECT && ed->drag_active && ed->selected_idx >= 0 &&
-	    (size_t)ed->selected_idx < ed->actions.cursor) {
+	if (ed->tool == TOOL_SELECT && ed->marquee_active) {
+		selection_from_marquee(ed, ed->marquee_x, ed->marquee_y, ed->cursor_x, ed->cursor_y);
+	}
+	if (ed->tool == TOOL_SELECT && ed->drag_active && ed->sel_len > 0) {
 		int dx = ed->cursor_x - ed->drag_origin_x;
 		int dy = ed->cursor_y - ed->drag_origin_y;
 		if (mev->state & ShiftMask) {
@@ -3962,8 +4136,8 @@ editor_run(const struct app_config *cfg, struct image *img)
 			break;
 		case MotionNotify:
 			handle_motion(&ed, &ev.xmotion);
-			if (ed.drag_active || ed.rotating || ed.anchor_active || ed.text_mode ||
-			    ed.pen_active || ed.tool == TOOL_PICKER || ed.tool == TOOL_MARKER ||
+			if (ed.drag_active || ed.rotating || ed.marquee_active || ed.anchor_active ||
+			    ed.text_mode || ed.pen_active || ed.tool == TOOL_PICKER || ed.tool == TOOL_MARKER ||
 			    ev.xmotion.y >= ed.win_h - ed.status_h) {
 				render_frame(&ed);
 			}
