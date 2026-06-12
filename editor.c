@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <locale.h>
 #include <limits.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,6 +90,7 @@ struct action {
 	int x1;
 	int y1;
 	int p0;
+	int rotation;
 	unsigned int color;
 	char *text;
 	int *pen_points;
@@ -170,6 +172,7 @@ struct editor_state {
 	int drag_origin_y;
 	int drag_dx;
 	int drag_dy;
+	int rotating;
 	int pen_active;
 	int pen_color;
 	int pen_thickness;
@@ -203,6 +206,11 @@ static void text_box_metrics(const struct editor_state *ed,
 			     int *bh);
 static void set_tool(struct editor_state *ed, enum tool tool);
 static int tool_uses_anchor(enum tool tool);
+static void apply_action(struct editor_state *ed, struct image *img, const struct action *a);
+static void apply_action_rotated(struct editor_state *ed, struct image *img, const struct action *a);
+static int action_is_rotatable(enum action_type t);
+static void action_center(const struct editor_state *ed, const struct action *a, double *cx, double *cy);
+static void rotate_selected_by(struct editor_state *ed, int delta);
 
 static void
 build_font_pattern(char *out, size_t outlen, int px)
@@ -1317,6 +1325,10 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 	if (!ed || !img || !a) {
 		return;
 	}
+	if (a->rotation % 360 != 0 && action_is_rotatable(a->type)) {
+		apply_action_rotated(ed, img, a);
+		return;
+	}
 	switch (a->type) {
 	case ACTION_ARROW:
 		draw_arrow(img, a->x0, a->y0, a->x1, a->y1, a->p0, a->color);
@@ -1393,6 +1405,221 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 	default:
 		break;
 	}
+}
+
+static int
+action_is_rotatable(enum action_type t)
+{
+	return t == ACTION_ARROW || t == ACTION_LINE || t == ACTION_PEN || t == ACTION_NUMBER ||
+	       t == ACTION_RECT || t == ACTION_CIRCLE || t == ACTION_TEXT;
+}
+
+static void
+action_center(const struct editor_state *ed, const struct action *a, double *cx, double *cy)
+{
+	int minx;
+	int miny;
+	int maxx;
+	int maxy;
+
+	action_bounds(ed, a, &minx, &miny, &maxx, &maxy);
+	if (cx) {
+		*cx = (minx + maxx) / 2.0;
+	}
+	if (cy) {
+		*cy = (miny + maxy) / 2.0;
+	}
+}
+
+static int
+action_draw_pad(const struct action *a)
+{
+	int t;
+
+	if (!a) {
+		return 4;
+	}
+	switch (a->type) {
+	case ACTION_ARROW:
+		t = a->p0 > 0 ? a->p0 : 1;
+		return (int)(10.0 + t * 2.0) + t + 4;
+	case ACTION_LINE:
+	case ACTION_RECT:
+	case ACTION_CIRCLE:
+	case ACTION_PEN:
+		t = a->p0 > 0 ? a->p0 : 1;
+		return t / 2 + 3;
+	default:
+		return 4;
+	}
+}
+
+/*
+ * Render a rotatable action rotated by a->rotation degrees about its center.
+ * The action is first drawn into a transparent scratch layer, which is then
+ * sampled back onto img with an inverse rotation (nearest-neighbour).
+ */
+static void
+apply_action_rotated(struct editor_state *ed, struct image *img, const struct action *a)
+{
+	struct image tmp;
+	struct action s;
+	int *pts = NULL;
+	int minx;
+	int miny;
+	int maxx;
+	int maxy;
+	int pad;
+	int tw;
+	int th;
+	double cx;
+	double cy;
+	double tcx;
+	double tcy;
+	double rad;
+	double cosr;
+	double sinr;
+	double dminx;
+	double dminy;
+	double dmaxx;
+	double dmaxy;
+	int dx0;
+	int dy0;
+	int dx1;
+	int dy1;
+	int X;
+	int Y;
+	int i;
+
+	if (!ed || !img || !img->pixels || !a) {
+		return;
+	}
+
+	action_bounds(ed, a, &minx, &miny, &maxx, &maxy);
+	pad = action_draw_pad(a);
+	minx -= pad;
+	miny -= pad;
+	maxx += pad;
+	maxy += pad;
+	tw = maxx - minx + 1;
+	th = maxy - miny + 1;
+	if (tw < 1 || th < 1) {
+		return;
+	}
+	/* guard against pathological sizes */
+	if ((long)tw * (long)th > 64L * 1024L * 1024L) {
+		return;
+	}
+
+	memset(&tmp, 0, sizeof(tmp));
+	tmp.width = tw;
+	tmp.height = th;
+	tmp.len = (size_t)tw * (size_t)th * 4u;
+	tmp.pixels = calloc(1, tmp.len);
+	if (!tmp.pixels) {
+		return;
+	}
+
+	s = *a;
+	s.rotation = 0;
+	switch (a->type) {
+	case ACTION_NUMBER:
+	case ACTION_TEXT:
+		s.x0 = a->x0 - minx;
+		s.y0 = a->y0 - miny;
+		break;
+	case ACTION_PEN:
+		if (a->pen_points && a->pen_len > 0) {
+			pts = malloc((size_t)a->pen_len * 2u * sizeof(*pts));
+			if (!pts) {
+				free(tmp.pixels);
+				return;
+			}
+			for (i = 0; i < a->pen_len; i++) {
+				pts[i * 2 + 0] = a->pen_points[i * 2 + 0] - minx;
+				pts[i * 2 + 1] = a->pen_points[i * 2 + 1] - miny;
+			}
+			s.pen_points = pts;
+		}
+		break;
+	default:
+		s.x0 = a->x0 - minx;
+		s.y0 = a->y0 - miny;
+		s.x1 = a->x1 - minx;
+		s.y1 = a->y1 - miny;
+		break;
+	}
+
+	apply_action(ed, &tmp, &s);
+
+	cx = (minx + maxx) / 2.0;
+	cy = (miny + maxy) / 2.0;
+	tcx = cx - minx;
+	tcy = cy - miny;
+	rad = a->rotation * M_PI / 180.0;
+	cosr = cos(rad);
+	sinr = sin(rad);
+
+	/* destination bounding box: forward-rotate the four corners about center */
+	dminx = dminy = 1e18;
+	dmaxx = dmaxy = -1e18;
+	for (i = 0; i < 4; i++) {
+		double px = (i == 1 || i == 2) ? maxx : minx;
+		double py = (i >= 2) ? maxy : miny;
+		double rx = cosr * (px - cx) - sinr * (py - cy) + cx;
+		double ry = sinr * (px - cx) + cosr * (py - cy) + cy;
+		if (rx < dminx) dminx = rx;
+		if (ry < dminy) dminy = ry;
+		if (rx > dmaxx) dmaxx = rx;
+		if (ry > dmaxy) dmaxy = ry;
+	}
+	dx0 = (int)floor(dminx) - 1;
+	dy0 = (int)floor(dminy) - 1;
+	dx1 = (int)ceil(dmaxx) + 1;
+	dy1 = (int)ceil(dmaxy) + 1;
+	if (dx0 < 0) dx0 = 0;
+	if (dy0 < 0) dy0 = 0;
+	if (dx1 > img->width - 1) dx1 = img->width - 1;
+	if (dy1 > img->height - 1) dy1 = img->height - 1;
+
+	for (Y = dy0; Y <= dy1; Y++) {
+		for (X = dx0; X <= dx1; X++) {
+			double dxp = X - cx;
+			double dyp = Y - cy;
+			/* inverse rotation back into scratch space */
+			double sxr = cosr * dxp + sinr * dyp + tcx;
+			double syr = -sinr * dxp + cosr * dyp + tcy;
+			int isx = (int)lround(sxr);
+			int isy = (int)lround(syr);
+			const unsigned char *sp;
+			unsigned char *dp;
+			unsigned int al;
+
+			if (isx < 0 || isy < 0 || isx >= tw || isy >= th) {
+				continue;
+			}
+			sp = tmp.pixels + ((size_t)isy * (size_t)tw + (size_t)isx) * 4u;
+			al = sp[3];
+			if (al <= 8u) {
+				continue;
+			}
+			dp = img->pixels + ((size_t)Y * (size_t)img->width + (size_t)X) * 4u;
+			if (al >= 255u) {
+				dp[0] = sp[0];
+				dp[1] = sp[1];
+				dp[2] = sp[2];
+				dp[3] = 0xff;
+			} else {
+				dp[0] = (unsigned char)(((unsigned int)dp[0] * (255u - al) + (unsigned int)sp[0] * al) / 255u);
+				dp[1] = (unsigned char)(((unsigned int)dp[1] * (255u - al) + (unsigned int)sp[1] * al) / 255u);
+				dp[2] = (unsigned char)(((unsigned int)dp[2] * (255u - al) + (unsigned int)sp[2] * al) / 255u);
+				dp[3] = 0xff;
+			}
+		}
+	}
+
+	free(pts);
+	free(tmp.pixels);
 }
 
 static void
@@ -1734,6 +1961,88 @@ draw_help_overlay(struct editor_state *ed)
 	}
 }
 
+#define ROTATE_HANDLE_OFFSET 22
+#define ROTATE_HANDLE_RADIUS 7
+
+/*
+ * Compute the selected action's bounding quad and rotation handle in screen
+ * coordinates. corners receives 8 ints (x,y for TL,TR,BR,BL); handle receives
+ * the handle centre (x,y). Honours any active drag offset.
+ */
+static void
+selection_geometry(struct editor_state *ed, const struct action *a, int *corners, int *handle)
+{
+	int minx;
+	int miny;
+	int maxx;
+	int maxy;
+	double cx;
+	double cy;
+	double rad;
+	double cosr;
+	double sinr;
+	double sxoff;
+	double syoff;
+	double tmx;
+	double tmy;
+	double upx;
+	double upy;
+	int i;
+	const double bx[4] = { 0, 1, 1, 0 };
+	const double by[4] = { 0, 0, 1, 1 };
+
+	action_bounds(ed, a, &minx, &miny, &maxx, &maxy);
+	if (ed->drag_active) {
+		minx += ed->drag_dx;
+		maxx += ed->drag_dx;
+		miny += ed->drag_dy;
+		maxy += ed->drag_dy;
+	}
+	cx = (minx + maxx) / 2.0;
+	cy = (miny + maxy) / 2.0;
+	rad = a->rotation * M_PI / 180.0;
+	cosr = cos(rad);
+	sinr = sin(rad);
+	sxoff = ed->canvas_x;
+	syoff = ed->canvas_y;
+
+	for (i = 0; i < 4; i++) {
+		double px = minx + bx[i] * (maxx - minx);
+		double py = miny + by[i] * (maxy - miny);
+		double rx = cosr * (px - cx) - sinr * (py - cy) + cx;
+		double ry = sinr * (px - cx) + cosr * (py - cy) + cy;
+		corners[i * 2 + 0] = (int)lround(sxoff + rx * ed->scale);
+		corners[i * 2 + 1] = (int)lround(syoff + ry * ed->scale);
+	}
+	/* handle sits beyond the rotated top edge midpoint */
+	tmx = (corners[0] + corners[2]) / 2.0;
+	tmy = (corners[1] + corners[3]) / 2.0;
+	upx = sinr;
+	upy = -cosr;
+	handle[0] = (int)lround(tmx + upx * ROTATE_HANDLE_OFFSET);
+	handle[1] = (int)lround(tmy + upy * ROTATE_HANDLE_OFFSET);
+}
+
+static int
+rotation_handle_hit(struct editor_state *ed, int sx, int sy)
+{
+	int corners[8];
+	int handle[2];
+	int dx;
+	int dy;
+
+	if (ed->selected_idx < 0 || (size_t)ed->selected_idx >= ed->actions.cursor) {
+		return 0;
+	}
+	if (!action_is_rotatable(ed->actions.items[ed->selected_idx].type)) {
+		return 0;
+	}
+	selection_geometry(ed, &ed->actions.items[ed->selected_idx], corners, handle);
+	dx = sx - handle[0];
+	dy = sy - handle[1];
+	return dx * dx + dy * dy <= (ROTATE_HANDLE_RADIUS + 3) * (ROTATE_HANDLE_RADIUS + 3);
+}
+
 static void
 render_frame(struct editor_state *ed)
 {
@@ -1857,33 +2166,35 @@ render_frame(struct editor_state *ed)
 	          0);
 	if (ed->selected_idx >= 0 && (size_t)ed->selected_idx < ed->actions.cursor) {
 		struct action *sa = &ed->actions.items[ed->selected_idx];
-		int minx;
-		int miny;
-		int maxx;
-		int maxy;
-		int sx0;
-		int sy0;
-		int sx1;
-		int sy1;
-		action_bounds(ed, sa, &minx, &miny, &maxx, &maxy);
-		if (ed->drag_active) {
-			minx += ed->drag_dx;
-			maxx += ed->drag_dx;
-			miny += ed->drag_dy;
-			maxy += ed->drag_dy;
-		}
-		sx0 = ed->canvas_x + (int)(minx * ed->scale);
-		sy0 = ed->canvas_y + (int)(miny * ed->scale);
-		sx1 = ed->canvas_x + (int)(maxx * ed->scale);
-		sy1 = ed->canvas_y + (int)(maxy * ed->scale);
+		int corners[8];
+		int handle[2];
+		int i;
+		selection_geometry(ed, sa, corners, handle);
 		XSetForeground(ed->dpy, ed->gc, (unsigned long)(selection_bbox_color & 0xffffffu));
-		XDrawRectangle(ed->dpy,
-		               ed->win,
-		               ed->gc,
-		               sx0,
-		               sy0,
-		               (unsigned int)(sx1 >= sx0 ? (sx1 - sx0) : (sx0 - sx1)),
-		               (unsigned int)(sy1 >= sy0 ? (sy1 - sy0) : (sy0 - sy1)));
+		for (i = 0; i < 4; i++) {
+			int j = (i + 1) % 4;
+			XDrawLine(ed->dpy,
+			          ed->win,
+			          ed->gc,
+			          corners[i * 2 + 0],
+			          corners[i * 2 + 1],
+			          corners[j * 2 + 0],
+			          corners[j * 2 + 1]);
+		}
+		if (action_is_rotatable(sa->type)) {
+			int tmx = (corners[0] + corners[2]) / 2;
+			int tmy = (corners[1] + corners[3]) / 2;
+			XDrawLine(ed->dpy, ed->win, ed->gc, tmx, tmy, handle[0], handle[1]);
+			XDrawArc(ed->dpy,
+			         ed->win,
+			         ed->gc,
+			         handle[0] - ROTATE_HANDLE_RADIUS,
+			         handle[1] - ROTATE_HANDLE_RADIUS,
+			         (unsigned int)(ROTATE_HANDLE_RADIUS * 2),
+			         (unsigned int)(ROTATE_HANDLE_RADIUS * 2),
+			         0,
+			         360 * 64);
+		}
 	}
 	if (ed->anchor_active && tool_uses_anchor(ed->tool)) {
 		int x0 = ed->canvas_x + (int)(ed->anchor_x * ed->scale);
@@ -1944,6 +2255,7 @@ set_tool(struct editor_state *ed, enum tool tool)
 		ed->drag_active = 0;
 		ed->drag_dx = 0;
 		ed->drag_dy = 0;
+		ed->rotating = 0;
 	}
 	if (ed->tool == TOOL_TEXT && ed->text_mode) {
 		commit_text_input(ed);
@@ -2134,6 +2446,20 @@ action_hit_test(const struct editor_state *ed, const struct action *a, int x, in
 
 	if (!a) {
 		return 0;
+	}
+	if (a->rotation % 360 != 0 && action_is_rotatable(a->type)) {
+		double cx;
+		double cy;
+		double rad = -a->rotation * M_PI / 180.0;
+		double cosr = cos(rad);
+		double sinr = sin(rad);
+		double dxp;
+		double dyp;
+		action_center(ed, a, &cx, &cy);
+		dxp = x - cx;
+		dyp = y - cy;
+		x = (int)lround(cosr * dxp - sinr * dyp + cx);
+		y = (int)lround(sinr * dxp + cosr * dyp + cy);
 	}
 	pad = 6 + a->p0;
 	minx = a->x0 < a->x1 ? a->x0 : a->x1;
@@ -2805,6 +3131,23 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		return 1;
 	}
 
+	if (sym == XK_comma) {
+		rotate_selected_by(ed, -15);
+		return 1;
+	}
+	if (sym == XK_period) {
+		rotate_selected_by(ed, 15);
+		return 1;
+	}
+	if (sym == XK_less) {
+		rotate_selected_by(ed, -1);
+		return 1;
+	}
+	if (sym == XK_greater) {
+		rotate_selected_by(ed, 1);
+		return 1;
+	}
+
 	if (sym >= XK_1 && sym <= XK_9) {
 		size_t idx = (size_t)(sym - XK_1);
 		size_t n = sizeof(palette) / sizeof(palette[0]);
@@ -3069,6 +3412,64 @@ set_cursor_from_xy(struct editor_state *ed, int x, int y)
 }
 
 static void
+rotate_selected_by(struct editor_state *ed, int delta)
+{
+	struct action *a;
+	int deg;
+
+	if (ed->selected_idx < 0 || (size_t)ed->selected_idx >= ed->actions.cursor) {
+		return;
+	}
+	a = &ed->actions.items[ed->selected_idx];
+	if (!action_is_rotatable(a->type)) {
+		return;
+	}
+	deg = (a->rotation + delta) % 360;
+	if (deg < 0) {
+		deg += 360;
+	}
+	a->rotation = deg;
+	ed->dirty = 1;
+	ed->raster_dirty = 1;
+}
+
+static void
+rotate_selected_to_pointer(struct editor_state *ed, int sx, int sy, int snap)
+{
+	struct action *a;
+	double cx;
+	double cy;
+	double scx;
+	double scy;
+	double ang;
+	int deg;
+
+	if (ed->selected_idx < 0 || (size_t)ed->selected_idx >= ed->actions.cursor) {
+		return;
+	}
+	a = &ed->actions.items[ed->selected_idx];
+	if (!action_is_rotatable(a->type)) {
+		return;
+	}
+	action_center(ed, a, &cx, &cy);
+	scx = ed->canvas_x + cx * ed->scale;
+	scy = ed->canvas_y + cy * ed->scale;
+	ang = atan2((double)sy - scy, (double)sx - scx) * 180.0 / M_PI + 90.0;
+	if (snap) {
+		deg = (int)lround(ang / 45.0) * 45;
+	} else {
+		deg = (int)lround(ang);
+	}
+	deg %= 360;
+	if (deg < 0) {
+		deg += 360;
+	}
+	a->rotation = deg;
+	ed->dirty = 1;
+	ed->raster_dirty = 1;
+}
+
+static void
 handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 {
 	if (bev->button != Button1) {
@@ -3088,6 +3489,13 @@ handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 	ed->mouse_b1_down = 1;
 	ed->mouse_drag_moved = 0;
 	if (ed->tool == TOOL_SELECT) {
+		if (rotation_handle_hit(ed, bev->x, bev->y)) {
+			ed->rotating = 1;
+			ed->drag_active = 0;
+			ed->drag_dx = 0;
+			ed->drag_dy = 0;
+			return;
+		}
 		ed->selected_idx = find_action_at(ed, ed->cursor_x, ed->cursor_y);
 		ed->drag_active = (ed->selected_idx >= 0);
 		ed->drag_origin_x = ed->cursor_x;
@@ -3134,6 +3542,12 @@ handle_button_release(struct editor_state *ed, XButtonEvent *bev)
 		return;
 	}
 	set_cursor_from_xy(ed, bev->x, bev->y);
+	if (ed->rotating) {
+		ed->rotating = 0;
+		ed->mouse_b1_down = 0;
+		ed->raster_dirty = 1;
+		return;
+	}
 	if (!ed->mouse_b1_down) {
 		return;
 	}
@@ -3204,6 +3618,9 @@ handle_motion(struct editor_state *ed, XMotionEvent *mev)
 	oldx = ed->cursor_x;
 	oldy = ed->cursor_y;
 	set_cursor_from_xy(ed, mev->x, mev->y);
+	if (ed->tool == TOOL_SELECT && ed->rotating) {
+		rotate_selected_to_pointer(ed, mev->x, mev->y, mev->state & ShiftMask);
+	}
 	if (ed->tool == TOOL_SELECT && ed->drag_active && ed->selected_idx >= 0 &&
 	    (size_t)ed->selected_idx < ed->actions.cursor) {
 		int dx = ed->cursor_x - ed->drag_origin_x;
@@ -3367,7 +3784,7 @@ editor_run(const struct app_config *cfg, struct image *img)
 			break;
 		case MotionNotify:
 			handle_motion(&ed, &ev.xmotion);
-			if (ed.drag_active || ed.anchor_active || ed.text_mode || ed.tool == TOOL_PICKER ||
+			if (ed.drag_active || ed.rotating || ed.anchor_active || ed.text_mode || ed.tool == TOOL_PICKER ||
 			    ev.xmotion.y >= ed.win_h - ed.status_h) {
 				render_frame(&ed);
 			}
