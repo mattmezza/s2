@@ -11,3 +11,6 @@
 - Add cursor-centered zoom, Ctrl-drag panning and reliable keyboard zoom/fit.
 - Use seconds/microseconds and exclusive creation for timestamped saves. Save only with Ctrl+S/Save, honoring explicit `-o` paths; Enter only finishes input.
 - Add man page, current screenshots, configuration/controls documentation, and isolated native/regression/performance checks.
+- Download checksum-pinned CUI through Make instead of tracking dependency sources; include CUI in offline source release archives.
+- Add a GitHub Pages documentation and feature website with compiled Tailwind CSS, Geist typography, interactive previews, and accessible motion.
+- Add `make release name=v0.1.0` to validate, package, checksum, tag, and publish releases.
