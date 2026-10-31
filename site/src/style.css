@@ -66,3 +66,5 @@ details p { margin-top:14px; max-width:750px; color:#aab1c2; line-height:1.8; }
 @media(max-width:640px) { .container { width:calc(100% - 32px); } .hero-shot { transform:none; } .floating-label { display:none; } .docs h1 { font-size:34px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } .reveal.waiting { opacity:1; transform:none; } .hero-shot { transform:none; } }
 .grid > * { min-width: 0; }
+
+.site-icon { display:inline-block; width:1em; height:1em; flex-shrink:0; vertical-align:-.125em; }
