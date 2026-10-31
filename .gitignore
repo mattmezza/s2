@@ -15,7 +15,7 @@
 SPEC.md
 .tmux-session
 
-/vendor/cui/build/
+/vendor/cui/
 
 !assets/icons/*.png
 
@@ -24,5 +24,6 @@ SPEC.md
 /tests/text-test
 
 !docs/screenshots/*.png
-!vendor/cui/**/*.png
 __pycache__/
+
+/dist/

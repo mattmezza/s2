@@ -1,4 +1,0 @@
-{
- "commit": "@ACCESSKIT_COMMIT@",
- "library_sha256": "@ACCESSKIT_LIBRARY_SHA256@"
-}

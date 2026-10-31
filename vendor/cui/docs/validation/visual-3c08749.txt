@@ -1,3 +1,0 @@
-Integration source: 3c08749
-Scope: combined word navigation, docs and crop-isolated image smoothing.
-PASS: Marker line, Pagination/Stepper text centering, graphical Rating, real Image pixels

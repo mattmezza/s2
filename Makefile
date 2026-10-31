@@ -15,13 +15,19 @@ options:
 config.h:
 	cp config.def.h $@
 
-${OBJ}: config.h config.mk
+${OBJ}: config.h config.mk | vendor/cui/.s2-revision
 editor.o: assets/fonts/embedded.h assets/icons/masks.h assets/icons/rotate-cursor.h assets/icons/pan-cursors.h themes.h
 
 assets/fonts/embedded.h: scripts/embed_fonts.py assets/fonts/Geist-Variable.ttf assets/fonts/Geist-Italic-Variable.ttf assets/fonts/OFL.txt
 	python3 scripts/embed_fonts.py
 
-vendor/cui/build/libcui.a:
+deps: vendor/cui/.s2-revision
+
+vendor/cui/.s2-revision: cui.lock.json scripts/fetch_cui.py
+	python3 scripts/fetch_cui.py
+
+# Source headers must be present before parallel compilation starts.
+vendor/cui/build/libcui.a: vendor/cui/.s2-revision
 	cmake -S vendor/cui -B vendor/cui/build -DCUI_BUILD_NATIVE=OFF
 	cmake --build vendor/cui/build --target cui -j4
 
@@ -45,14 +51,15 @@ clean:
 distclean: clean
 	rm -f config.h
 
-dist: clean
-	mkdir -p s2-${VERSION}
-	cp -R LICENSE Makefile README.md config.mk config.def.h *.c *.h SPEC.md cover-og.png vendor tests assets scripts docs CHANGELOG.md s2-${VERSION}
-	rm -rf s2-${VERSION}/vendor/cui/build
-	rm -f s2-${VERSION}/config.h
-	tar -cf s2-${VERSION}.tar s2-${VERSION}
-	gzip s2-${VERSION}.tar
-	rm -rf s2-${VERSION}
+dist: deps
+	python3 scripts/dist.py --version ${VERSION}
+
+site:
+	npm --prefix site ci
+	npm --prefix site run build
+
+release:
+	python3 scripts/release.py "${name}"
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
@@ -68,4 +75,4 @@ uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/s2 ${DESTDIR}${MANPREFIX}/man1/s2.1
 	rm -rf ${DESTDIR}${PREFIX}/share/s2 ${DESTDIR}${PREFIX}/share/licenses/s2
 
-.PHONY: all options clean distclean dist install uninstall test-blur test-text
+.PHONY: all options clean distclean dist install uninstall test-blur test-text deps site release

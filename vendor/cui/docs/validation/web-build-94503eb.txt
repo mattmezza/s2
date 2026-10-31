@@ -1,2 +1,0 @@
-Rendered 63 documentation pages into /tmp/cui-next-integration/build/web/docs.json
-Gallery built at /tmp/cui-next-integration/build/web; serve over HTTP, e.g. python -m http.server -d /tmp/cui-next-integration/build/web

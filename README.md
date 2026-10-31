@@ -24,7 +24,7 @@ Without `-o`, Save/Ctrl+S creates `YYYY-MM-DDTHHMMSS.ffffff.png` in the configur
 
 ## Build and install
 
-Requires a C11 compiler, Make, CMake, Python 3, pkg-config, X11/Xft/FreeType, Fontconfig, libpng, Pango, Cairo, and HarfBuzz. Clipboard operations use `xclip`; repository links use `xdg-open`. `maim` and `slop` are optional capture tools.
+Requires a C11 compiler, Make, CMake, Python 3 (with HTTPS support), pkg-config, X11/Xft/FreeType, Fontconfig, libpng, Pango, Cairo, and HarfBuzz. Clipboard operations use `xclip`; repository links use `xdg-open`. `maim` and `slop` are optional capture tools.
 
 On Arch Linux:
 
@@ -36,7 +36,7 @@ make
 sudo make install
 ```
 
-The default prefix is `/usr/local`; edit `config.mk` or use `make PREFIX=/your/prefix install`. Installation includes the executable, man page, and project, font, CUI and Clay licenses. No network access is needed to build from a complete checkout.
+The default prefix is `/usr/local`; edit `config.mk` or use `make PREFIX=/your/prefix install`. Installation includes the executable, man page, and project, font, CUI and Clay licenses. The first `make` downloads CUI at the revision in `cui.lock.json` and verifies its SHA-256 checksum. Later builds use the local `vendor/cui` cache. Run `make deps` to fetch it ahead of time. Release source archives include CUI and can build offline.
 
 The executable embeds Geist upright/italic variable fonts, icon masks, cursors, and the font license. It needs no adjacent asset files, API key, or installed Geist fonts. It still links to the platform libraries above. `s2 --licenses` prints the embedded font license.
 
@@ -108,7 +108,7 @@ See [`docs/CONTROLS.md`](docs/CONTROLS.md), `man s2`, and `s2 -h` for details.
 
 ## Development and checks
 
-CUI is vendored at [`ab8fddbbbca4b78e3b2cc1b14752dd0c4ac96b30`](vendor/cui/.cui-lock.json). The native X11/Cairo/Pango editor paints CUI chrome while caching capture pixels on the X server. Drawing coalesces consecutive pointer motions, retains freehand points, and uses cropped previews; final exports render at capture resolution.
+CUI is downloaded at the exact revision in [`cui.lock.json`](cui.lock.json); its source is cached locally and is not tracked by Git. The native X11/Cairo/Pango editor paints CUI chrome while caching capture pixels on the X server. Drawing coalesces consecutive pointer motions, retains freehand points, and uses cropped previews; final exports render at capture resolution.
 
 ```sh
 make test-text test-blur
@@ -124,8 +124,20 @@ Native checks require Xvfb, xdotool, xclip, and ImageMagick's `import`. They run
 
 Regenerate the documentation images with `python3 scripts/render_screenshots.py` (also requires Pillow). It renders synthetic code on a private display; no real workspace contents are captured.
 
+## Website and releases
+
+`make site` installs the locked website dependencies and builds the static Tailwind CSS site into `site/dist` (requires Node.js and npm). The GitHub Pages workflow builds and deploys it when `main` changes.
+
+To publish a release, update `VERSION` in `config.mk` and add the matching `vX.Y.Z` heading to `CHANGELOG.md`, then commit all changes and run:
+
+```sh
+make release name=v0.1.0
+```
+
+This runs the native regression checks and website build, packages tracked source plus the pinned CUI dependency into an offline source archive, writes SHA-256 checksums, creates an annotated tag, pushes the branch and tag, and publishes a GitHub release. It requires GitHub CLI authentication and the test dependencies listed above. `make dist` creates the source archive from the current commit without publishing.
+
 ## License
 
-MIT © 2026 Matteo Merola. See [LICENSE](LICENSE). Geist is distributed under the [SIL Open Font License](assets/fonts/OFL.txt); CUI includes its own [license](vendor/cui/LICENSE).
+MIT © 2026 Matteo Merola. See [LICENSE](LICENSE). Geist is distributed under the [SIL Open Font License](assets/fonts/OFL.txt); CUI includes its own [license](https://github.com/mattmezza/cui/blob/ab8fddbbbca4b78e3b2cc1b14752dd0c4ac96b30/LICENSE).
 
 [GitHub repository](https://github.com/mattmezza/s2)
