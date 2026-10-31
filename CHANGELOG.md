@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.0 — 2026-10-31
 
 - Redesign the native editor with CUI, embedded Geist fonts/icons, centered responsive bars, themes, and a themed About dialog with a repository link.
 - Make regular tileable windows the default; add `--modal` for floating dialog hints and mode-aware Escape behavior. Support graceful WM Quit with successful cancellation status.
