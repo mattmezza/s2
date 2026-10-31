@@ -20,6 +20,7 @@ struct app_config {
 	const char *window_class;
 	const char *save_dir_override;
 	int copy_on_finish;
+ int output_path_explicit;
 	int normal_window;
 	int show_help;
 	int show_version;
@@ -75,5 +76,7 @@ void draw_blur(struct image *img, int x0, int y0, int x1, int y1, int radius);
 unsigned int draw_sample_color(const struct image *img, int x, int y);
 
 void die(const char *fmt, ...);
+
+void editor_print_licenses(void);
 
 #endif

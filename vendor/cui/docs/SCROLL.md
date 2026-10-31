@@ -1,0 +1,27 @@
+# Scrollable content
+
+`cui_scrollable_begin`/`cui_scrollable_end` wrap caller content in a fixed-size clipped viewport with application-owned horizontal/vertical offsets. Content dimensions are explicit by default; the kit clamps offsets, translates children with fractional precision, and draws optional themed scrollbars. `cui_base_scrollable` performs the same reductions and semantic submission without drawing. Negative or nonfinite sizes use documented defaults (320×240 viewport, 10-pixel bars, 48-pixel wheel steps); axes not enabled remain at zero.
+
+Wheel events route to the innermost eligible clipped semantic scroll region under the pointer. A container at a boundary passes the event to an eligible parent based on the preceding frame's offsets. Higher interactive portals and unrelated modal scopes block background scrolling. Initial routing uses preceding-frame geometry. A child may explicitly defer an unconsumed scroll to an eligible layout ancestor with `cui_defer_scroll_event`. Prefer `cui_scrollable_end_ex` with mutable state: it handles deferred events after children and updates the current frame's viewport offset and scrollbar paint. Handled wheel events are consumed, so the finish phase does not replay begin-phase movement. The original const-state `cui_scrollable_end` remains a paint-only compatibility API and cannot process late deferrals. Custom base compositions can call `cui_base_scrollable_finish` and `cui_set_box_scroll_offset` after children.
+
+`hide_scrollbars` keeps the full viewport available without drawing tracks. `axis_lock` routes each event by its dominant axis (ties are vertical). `trap_horizontal` consumes horizontal-dominant movement even at the horizontal boundary, matching embedded table masks. Optional `gesture_lock` retains the initial precise-scroll axis across frames by stable semantic ID: a 28 ms quiet interval or an explicit gesture boundary starts a new gesture; a sufficiently strong perpendicular turn releases the lock. Ordinary line wheels remain unchanged. The persistent lock is disabled on WebAssembly to match the pinned upstream behavior. Routing filters only eligible, visible owners and supplies the filtered event to child/parent reducers consistently. Removing or disabling the owner clears its retained state.
+
+Scrollbars expose their controlled value, range, orientation and related content. Arrow keys step, PageUp/PageDown move one viewport, and Home/End select an endpoint. Clicking a track pages toward the click; captured thumb dragging preserves the initial grab offset across frames. Secondary-button events do not change primary dragging. Disabled scrolling preserves the caller's current offsets after clamping; callers independently control the disabled state of their children.
+
+`tests/unit/test_scroll.c` exercises both axes, wheel routing, translated row geometry and clipped hits, scrollbar keyboard and captured dragging, semantics, all four themes, invalid offsets and small content. A separate base-only executable links only core and the scroll reducer. Bare layout fixtures emit their own clip commands; a behavior-only frame proves the reducer paints nothing. Core tests independently cover nested boundary routing and higher-portal blocking.
+
+Grow-sized viewports, inertial/touch scrolling, auto-hidden/system-style bars, accessibility platform bridges, fractional DPI pixel snapping and exhaustive upstream integration remain unfinished. Existing virtual tree/table models can provide content dimensions and visible ranges; this container does not imply those models are rendered automatically.
+
+The browser gallery forwards pixel wheel deltas as precise CUI scroll events for Scrollable, Sidebar and VirtualList. Fractional deltas retain their distance rather than being multiplied by the widget's discrete wheel step. Native hosts can opt into the same contract with `cui_event.scroll_precise = true`; discrete wheel events continue to use the configured step. Sidebar's absolute content position follows its scroll model, while the scrollbar stays anchored in the viewport.
+
+Set `auto_measure_content` to measure ordinary laid-out children on enabled axes
+whose `content_width`/`content_height` is omitted (nonpositive or nonfinite).
+Explicit positive finite dimensions take precedence, including virtual content.
+The container retains the FIT content box extent through its stable owner ID and
+uses the preceding frame's layout for ranges, clamping, and scrollbar geometry.
+The first frame has zero range; additions, removals, and wrapped text changes
+update the range on the following frame. Width stays constrained to the viewport
+when only vertical measurement is enabled, so wrapped text contributes its laid-out
+height. Enable horizontal measurement for content that should fit its natural
+width. Out-of-flow absolute boxes and portals do not enlarge the FIT extent.
+The drawing-free base API continues to require explicit content dimensions.

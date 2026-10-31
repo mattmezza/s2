@@ -1,0 +1,47 @@
+# Dialog, AlertDialog, Sheet and composed Popover surfaces
+
+`cui_surface.h` adds application-owned surface state, drawing-free reducers and paired styled composition. A surface ID and its derived close, confirm, cancel and title IDs must be unique within the UI. Applications call `cui_surface_open` with a valid trigger, submit open surfaces every frame, and consume explicit outcomes with `cui_surface_take_result`. `cui_surface_request_close` queues a programmatic close safely between frames and applies the decision policy once on the next submission. `on_close` runs after state changes and focus restoration, including direct child-action closure. Call `cui_surface_close` during an active frame; if begin succeeded, its matching end remains required even after closing from a child action.
+
+Dialogs, alerts and sheets trap focus. Popovers are nonmodal by default, with an explicit modal option. Already-consumed events are ignored by the reducer. Escape and outside primary pointer presses can dismiss an open surface; the options disable either policy independently. Alerts suppress outside dismissal and their header close button by default. A decision callback can reject confirm, cancel or close before state changes. Closing withdraws current scoped semantics and restores an enabled trigger, including when a nested dialog closes back into its parent.
+
+The styled begin/end accepts arbitrary CUI children. `cui_surface_footer_begin` ends the body and opens a fixed footer row, keeping its controls visible even when the body contains oversized content; the regular surface end closes that footer. The body measures its own content through completed-layout bounds tracking, routes wheel events to its clipped viewport and clamps retained scroll when content shrinks. Changed geometry schedules correction frames and unchanged surfaces return to idle. Custom base layouts use parts 6/7 for the viewport/content and submit body semantics with `cui_base_surface_submit_body`. It draws a backdrop, title, optional description, close button and clipped body as viewport portals. `cui_alert_dialog` composes destructive confirm and outline cancel buttons. Alert title, description and actions share one vertically centered content block when it fits the panel. Overflowing alert content switches to a clipped, scrollable layout starting at the top, so the full content remains reachable. Each alert has an alertdialog semantic role; other surfaces use dialog, with a copied description and stable title relationship. A caller can compose its own alert actions using the documented derived IDs. Results persist until consumed or the surface is opened again.
+
+Dialog dimensions clamp within an explicit viewport and optional uniform margin. Sheets support left, right, top and bottom placement with explicit width/height. Their inner edge has a captured pointer resize control, directional arrow sizing, Home/End limits and semantic size/range. Resize is enabled by default; options disable it or configure minimum/maximum extents. The application-owned `sheet_size` retains user sizing; set it to zero to return to option sizing. `cui_surface_current_geometry` includes that retained size. Custom base-only layouts submit the resize semantic inside its own box using `cui_base_surface_submit_resize`; the helper draws nothing. Popovers use the existing side-based flip/clamp popup geometry. Nested surfaces require distinct IDs and explicitly increasing layers (default 100); the root does not yet provide an automatic overlay stack.
+
+`test_surface` exercises actual styled confirmation buttons, rejected acceptance, pointer cancellation, all four themes, all four sheet edges, header close, Escape, outside dismissal, nested focus isolation/restoration and portal escape from an ancestor clip. The same behavior fixtures also run as `surface_base_only`, linking only core, models, overlay and surface base sources. Those fixtures emit only their own clipping commands, demonstrating no theme or component dependency in surface behavior.
+
+This is partial GPUI Kit 0.7.1 parity. Remaining upstream scope includes automatic Root overlay management, custom title/header parts and styling options, body scrollbar chrome and keyboard focus reveal, configurable backdrop appearance, default viewport margins and top offsets, animated transitions and the complete Popover anchor/offset/arrow positioning contract. Existing popover flip behavior differs from upstream's anchored clamp-only default. Native platform accessibility and IME behavior remain separate unfinished requirements.
+
+For a child such as a command palette that handles Escape first, set `no_escape_dismiss` on its surface. Let the child consume Escape while clearing its query; on its empty-query cancel callback, call `cui_surface_request_close`. The next submission applies the decision callback and restores focus before registering modal content. Begin-phase dismissal cannot inspect event consumption that occurs later in child rendering.
+
+## Sheet motion
+
+Set `options.sheet_animation_seconds = 0.22f` to slide a sheet in and out from its configured edge. The default zero keeps immediate behavior. Motion reads `cui_frame_time(ui)`, which advances from the delta passed to `cui_begin_frame`; continue scheduling invalidated frames. `cui_surface_current_geometry` reports the moving bounds. Resize controls appear once entry completes.
+
+With animation enabled, closing keeps the modal mounted during its exit and consumes input events. Focus returns to the trigger, `on_close` fires, and a result becomes available only when the exit completes. `state.sheet_closing` exposes this phase to application composition. Calling open during exit reverses toward the open position. Pass `options.reduced_motion = true` to snap directly to the destination; changing it during exit completes the close in the next submitted frame. Duration is finite, positive and capped at ten seconds; invalid values disable animation. Dialog/AlertDialog/Popover behavior remains immediate.
+
+AlertDialog with unspecified/nonpositive finite height fits its measured title,
+wrapped description and action row plus theme padding. The first frame measures
+content; the next invalidated frame settles its height. Viewport margins still
+cap the dialog, and overflowing content remains scrollable. Explicit positive
+heights retain the fixed viewport contract. Resize, font or content changes can
+require another measured frame.
+
+## Independent Popover geometry
+
+`cui_popover_position_resolve` calculates an anchor-mode rectangle without opening
+a surface or modifying state. It supports eight anchors named for the popup's
+own edge, signed explicit offsets, nonzero viewport origins and no-flip/no-shrink
+clamping. Set `reference_rem` from application root sizing; zero selects 16 logical
+pixels. The default gap is one quarter rem; enabling the arrow adds three eighths
+rem. `cui_popover_arrow_resolve` calculates the triangle and border join patch for
+the final clamped rectangle. Read `cui_surface.h` for finite-input, overflow and
+output-preservation rules. Geometry remains fractional; host pixel snapping is
+separate.
+
+Use `cui_popover_begin` to apply this positioning and paint an optional arrow,
+then balance a successful begin with `cui_surface_end`. Existing
+`cui_surface_begin` retains legacy placement. See [Popover anchors](POPOVER_ANCHORS.md)
+for ownership, failure, rendering and adapter limits. SDL3 and browser mesh adapters have bounded analytic coverage; exact
+reference raster antialiasing remains unfinished. This is scoped C support, not
+complete family or language-builder parity.

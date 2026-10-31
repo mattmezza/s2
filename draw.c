@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -450,79 +451,104 @@ draw_pixelate(struct image *img, int x0, int y0, int x1, int y1, int block)
 	}
 }
 
-void
-draw_blur(struct image *img, int x0, int y0, int x1, int y1, int radius)
+void draw_blur(struct image *img, int x0, int y0, int x1, int y1, int radius)
 {
-	int minx;
-	int miny;
-	int maxx;
-	int maxy;
-	int x;
-	int y;
-	int dx;
-	int dy;
-	unsigned char *tmp;
-
-	if (!img || !img->pixels) {
+	int minx = x0 < x1 ? x0 : x1, miny = y0 < y1 ? y0 : y1;
+	int maxx = x0 > x1 ? x0 : x1, maxy = y0 > y1 ? y0 : y1;
+	if (!img || !img->pixels)
 		return;
-	}
-	if (radius < 1) {
+	if (radius < 1)
 		radius = 1;
-	}
-	minx = x0 < x1 ? x0 : x1;
-	miny = y0 < y1 ? y0 : y1;
-	maxx = x0 > x1 ? x0 : x1;
-	maxy = y0 > y1 ? y0 : y1;
-	if (minx < 0) minx = 0;
-	if (miny < 0) miny = 0;
-	if (maxx >= img->width) maxx = img->width - 1;
-	if (maxy >= img->height) maxy = img->height - 1;
-
-	tmp = malloc(img->len);
-	if (!tmp) {
+	if (minx < 0)
+		minx = 0;
+	if (miny < 0)
+		miny = 0;
+	if (maxx >= img->width)
+		maxx = img->width - 1;
+	if (maxy >= img->height)
+		maxy = img->height - 1;
+	if (minx > maxx || miny > maxy)
+		return;
+	int width = maxx - minx + 1, height = maxy - miny + 1;
+	if (radius > width && radius > height)
+		radius = width > height ? width : height;
+	size_t stride = (size_t)width * 4;
+	unsigned char *source = malloc(stride * (size_t)height);
+	uint64_t *columns = calloc((size_t)width * 3, sizeof(*columns));
+	if (!source || !columns) {
+		free(source);
+		free(columns);
 		return;
 	}
-	memcpy(tmp, img->pixels, img->len);
-
-	for (y = miny; y <= maxy; y++) {
-		for (x = minx; x <= maxx; x++) {
-			int nx;
-			int ny;
-			unsigned int rsum = 0;
-			unsigned int gsum = 0;
-			unsigned int bsum = 0;
-			unsigned int count = 0;
-			for (dy = -radius; dy <= radius; dy++) {
-				for (dx = -radius; dx <= radius; dx++) {
-					nx = x + dx;
-					ny = y + dy;
-					if (nx < minx || nx > maxx || ny < miny || ny > maxy) {
-						continue;
-					}
-					{
-						unsigned char *p = tmp + ((size_t)ny * (size_t)img->width + (size_t)nx) * 4;
-						rsum += p[0];
-						gsum += p[1];
-						bsum += p[2];
-						count++;
-					}
+	for (int y = 0; y < height; y++)
+		memcpy(source + (size_t)y * stride,
+		       img->pixels +
+			   ((size_t)(miny + y) * img->width + minx) * 4,
+		       stride);
+	/* Keep exact channel sums until the final division. A sliding column
+	 * window and sliding horizontal window preserve the old box-blur pixels
+	 * in O(w*h), independent of radius, without copying the full
+	 * screenshot. */
+	int bottom = radius < height ? radius : height - 1;
+	for (int y = 0; y <= bottom; y++)
+		for (int x = 0; x < width; x++)
+			for (int c = 0; c < 3; c++)
+				columns[x * 3 + c] +=
+				    source[(size_t)y * stride + x * 4 + c];
+	for (int y = 0; y < height; y++) {
+		if (y > 0) {
+			int remove = y - radius - 1, add = y + radius;
+			for (int x = 0; x < width; x++)
+				for (int c = 0; c < 3; c++) {
+					if (remove >= 0)
+						columns[x * 3 + c] -=
+						    source[(size_t)remove *
+							       stride +
+							   x * 4 + c];
+					if (add < height)
+						columns[x * 3 + c] +=
+						    source[(size_t)add *
+							       stride +
+							   x * 4 + c];
 				}
-			}
-			if (count > 0) {
-				unsigned char *dst = img->pixels + ((size_t)y * (size_t)img->width + (size_t)x) * 4;
-				dst[0] = (unsigned char)(rsum / count);
-				dst[1] = (unsigned char)(gsum / count);
-				dst[2] = (unsigned char)(bsum / count);
-				dst[3] = 0xff;
-			}
+		}
+		uint64_t sum[3] = {0, 0, 0};
+		int right = radius < width ? radius : width - 1;
+		for (int x = 0; x <= right; x++)
+			for (int c = 0; c < 3; c++)
+				sum[c] += columns[x * 3 + c];
+		int top = y > radius ? y - radius : 0;
+		bottom = y + radius < height ? y + radius : height - 1;
+		for (int x = 0; x < width; x++) {
+			if (x > 0)
+				for (int c = 0; c < 3; c++) {
+					if (x - radius - 1 >= 0)
+						sum[c] -=
+						    columns[(x - radius - 1) *
+								3 +
+							    c];
+					if (x + radius < width)
+						sum[c] +=
+						    columns[(x + radius) * 3 +
+							    c];
+				}
+			int left = x > radius ? x - radius : 0;
+			right = x + radius < width ? x + radius : width - 1;
+			uint64_t count =
+			    (uint64_t)(right - left + 1) * (bottom - top + 1);
+			unsigned char *pixel =
+			    img->pixels +
+			    ((size_t)(miny + y) * img->width + minx + x) * 4;
+			for (int c = 0; c < 3; c++)
+				pixel[c] = (unsigned char)(sum[c] / count);
+			pixel[3] = 255;
 		}
 	}
-
-	free(tmp);
+	free(columns);
+	free(source);
 }
 
-unsigned int
-draw_sample_color(const struct image *img, int x, int y)
+unsigned int draw_sample_color(const struct image *img, int x, int y)
 {
 	const unsigned char *p;
 
@@ -530,5 +556,6 @@ draw_sample_color(const struct image *img, int x, int y)
 		return 0xffffff;
 	}
 	p = img->pixels + ((size_t)y * (size_t)img->width + (size_t)x) * 4;
-	return ((unsigned int)p[0] << 16) | ((unsigned int)p[1] << 8) | (unsigned int)p[2];
+	return ((unsigned int)p[0] << 16) | ((unsigned int)p[1] << 8) |
+	       (unsigned int)p[2];
 }

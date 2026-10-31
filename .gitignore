@@ -1,16 +1,28 @@
 # build artifacts
 *.o
-s2
+/s2
 
 # local/runtime outputs
 *.png
 !cover-og.png
-core
-core.*
+/core
+/core.*
 
 # generated local config
-config.h
+/config.h
 
 # local notes/spec drafts
 SPEC.md
 .tmux-session
+
+/vendor/cui/build/
+
+!assets/icons/*.png
+
+/tests/blur-test
+
+/tests/text-test
+
+!docs/screenshots/*.png
+!vendor/cui/**/*.png
+__pycache__/

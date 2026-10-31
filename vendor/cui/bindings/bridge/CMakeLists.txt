@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.20)
+project(cui_bridge_private LANGUAGES C)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# Native bridge editing and contextual text require the canonical bidi provider.
+set(CUI_BUILD_BIDI ON CACHE BOOL "" FORCE)
+set(CUI_BUILD_CPP_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(CUI_GPU_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../.. ${CMAKE_CURRENT_BINARY_DIR}/cui_source EXCLUDE_FROM_ALL)
+enable_testing()
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/CUIBridge.cmake)

@@ -1,0 +1,140 @@
+.TH S2 1 "October 2026" "s2 0.1" "User Commands"
+.SH NAME
+s2 \- Super Screenshot, a native X11 screenshot annotation editor
+.SH SYNOPSIS
+.B s2
+.RI [ input_path ]
+.RB [ \-i " path|\-" ]
+.RB [ \-o " path" ]
+.RB [ \-C " class" ]
+.RB [ \-D " absdir" ]
+.RB [ \-\-modal ]
+.RB [ \-c ]
+.SH DESCRIPTION
+s2 edits an existing capture with arrows, lines, shapes, text, numbered pins,
+freehand strokes, highlights, blur and pixelation. Its view and floating controls
+are excluded from exported PNGs. Fonts, icons and cursors are embedded.
+.SH OPTIONS
+.TP
+.BI \-i " path|\-"
+Read an input image from a file or standard input. A positional path is equivalent.
+.TP
+.BI \-o " path"
+Use this explicit output path when saving. Existing files may be overwritten.
+Without this option, save to a unique timestamped PNG in the configured directory.
+.TP
+.BI \-D " absdir"
+Override the timestamped save directory. Must be an absolute path.
+.TP
+.BI \-C " class"
+Override both instance and class in X11 WM_CLASS.
+.TP
+.B \-\-modal
+Request a centered floating dialog using X11 dialog/modal hints.
+Placement is ultimately controlled by the window manager.
+.TP
+.B \-\-normal-window
+Compatibility alias for the default regular, resizable and tileable window.
+.TP
+.B \-c
+Copy the result when finishing successfully. Cancellation does not copy.
+.TP
+.B \-\-licenses
+Print the embedded font license and exit.
+.TP
+.B \-h
+Show usage.
+.TP
+.B \-v
+Show version.
+.SH FINISHING
+.TP
+.B Ctrl+S
+Commit pending input, save and exit. Honor an explicit \-o path; otherwise create
+YYYY-MM-DDTHHMMSS.ffffff.png. Timestamp collisions receive numeric suffixes.
+.TP
+.B Ctrl+C
+Commit pending input, copy the PNG to the clipboard and exit.
+.TP
+.B Ctrl+Y
+Copy the PNG and keep editing.
+.TP
+.B Enter
+Finish text entry or custom hex input. Never saves the image.
+.TP
+.B Esc
+In a regular window, cancel interactions and deselect. In modal mode, dismiss
+transient UI/input first; otherwise cancel and quit. About always dismisses first.
+.TP
+.B q, WM Quit
+Cancel and close. The app supports WM_DELETE_WINDOW for graceful WM Quit.
+.SH TOOLS
+s selects; a draws arrows; l lines; p pen; r rectangles; o circles; t text;
+n numbered pins; h highlight regions; m marker strokes; b blur; x pixelation;
+c samples a color. Text styling shortcuts take precedence while text is selected.
+.PP
+Drag to draw, or use Space to set/commit anchors. New annotations become selected.
+Reselecting Number resets numbering to 1 without changing its size.
+.SH SELECTION
+Drag selected objects to move; drag empty canvas for marquee selection.
+Delete/Backspace removes selected objects. Square handles resize; the round handle
+rotates. Shift preserves aspect ratio or snaps rotation to 45 degrees.
+Comma/period rotate by 15 degrees.
+.PP
+Drag a line/arrow midpoint diamond to curve; Shift-drag straightens.
+On selected arrows e/E cycle end styles forward/backward; < and > toggle the
+start/end. For other rotatable selections < and > rotate by 1 degree.
+.SH APPEARANCE
+[ and ] adjust the active tool or selected object dimension. Rectangle/circle
+outlines use 3-pixel steps; text/pins 8 pixels; marker width 8 pixels; blur 3 pixels;
+highlight strength 5 percentage points. Other strokes/pixelate blocks use 1 pixel.
+.PP
+1 through 9 choose foreground/stroke colors. Shift+numbers choose rectangle,
+circle or text fill colors. The color menu includes Stroke/Text and Fill targets,
+custom hex entry and image sampling. Shift-click opens Fill directly.
+.PP
+f toggles fill. Shift+F independently toggles rectangle/circle outlines.
+g toggles gradient fills, including text backgrounds, pins, highlights and filled
+arrow ends. Changes apply to compatible selected objects and future defaults.
+.SH TEXT
+Enter commits and selects text; t edits selected text in place. Left/Right,
+Home/End, Shift selection, Ctrl+A, Backspace/Delete and Ctrl+V are supported.
+Esc cancels editing. The editor is single-line and uses keyboard caret placement.
+.PP
+For selected text: b/B decreases/increases weight; i toggles italic;
+u underline; s strikethrough; p/P padding; c/C corner radius; [/] font size.
+.SH VIEW AND THEMES
++ zooms in; \- zooms out; = fits (0 is an alias).
+Ctrl+wheel zooms around the pointer; Ctrl+left-drag pans.
+Fit resets panning. Exports retain original capture dimensions.
+.PP
+Click the theme name, Alt+C, or Alt-click the color control for the theme menu.
+Alt+1 through Alt+9 select presets. Theme mappings/modifier are configurable.
+? opens keyboard help. The adjacent info button opens About with a clickable
+repository link, license, author and version. Tab/Enter navigate About.
+.SH CONFIGURATION
+Edit config.h and rebuild. It is copied from config.def.h only when missing.
+Settings include palette, tool dimensions, save directory, typography,
+S2_DEFAULT_GRADIENT_FILL, S2_DEFAULT_SHAPE_OUTLINE, S2_ARROW_EDGE_CYCLE,
+S2_DEFAULT_ARROW_EDGE_STYLE, S2_THEME_PRESETS and S2_THEME_MODIFIER.
+.SH EXIT STATUS
+0 indicates successful save, copy or cancellation. Errors return nonzero.
+.SH DEPENDENCIES
+X11, Cairo, Pango, HarfBuzz, Fontconfig, FreeType/Xft and libpng.
+xclip handles clipboard operations; xdg-open opens repository links.
+.SH EXAMPLES
+.nf
+maim -s | s2 --modal -i -
+s2 capture.png -o annotated.png
+s2 capture.png -D /tmp
+.fi
+.SH AUTHOR
+Matteo Merola.
+.SH LICENSE
+MIT, copyright 2026 Matteo Merola. Embedded Geist fonts use the SIL Open Font License.
+.SH SEE ALSO
+.BR maim (1),
+.BR xclip (1),
+.BR xdg-open (1)
+.PP
+https://github.com/mattmezza/s2

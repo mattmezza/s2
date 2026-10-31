@@ -1,0 +1,475 @@
+/* SPDX-License-Identifier: MIT */
+#include "cui/cui_software.h"
+#include <assert.h>
+#include <float.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+static const unsigned char *pixel(cui_software *r, int x, int y) {
+    unsigned w;
+    cui_software_pixels(r, &w, NULL);
+    return cui_software_pixels(r, NULL, NULL) + ((size_t)y * w + (unsigned)x) * 4;
+}
+#ifdef CUI_HAS_TEXT
+typedef struct {
+    unsigned glyphs, coverage;
+    uint64_t hash;
+} glyph_stats;
+static void glyph_count(void *user, int x, int y, int w, int h, int pitch,
+                        const unsigned char *data) {
+    glyph_stats *s = user;
+    s->hash = s->hash * 31 + (unsigned)x;
+    s->hash = s->hash * 31 + (unsigned)y;
+    s->hash = s->hash * 31 + (unsigned)w;
+    s->hash = s->hash * 31 + (unsigned)h;
+    if (!data)
+        return;
+    s->glyphs++;
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) {
+            s->coverage += data[j * pitch + i] != 0;
+            s->hash = s->hash * 31 + data[j * pitch + i];
+        }
+}
+static void test_rtl_fallback(cui_font *primary, const char *label, cui_str text, const char *env,
+                              const char *const *paths, size_t count) {
+    const char *requested = getenv(env);
+    cui_font *fallback = NULL;
+    cui_text_layout *source = NULL;
+    const char *chosen = NULL;
+    for (size_t i = 0; i < (requested ? 1 : count); ++i) {
+        const char *path = requested ? requested : paths[i];
+        cui_font *candidate = cui_font_open(path);
+        if (!candidate)
+            continue;
+        cui_text_layout_status status = cui_font_layout_line(
+            candidate, text, 20, (cui_text_style){0}, CUI_BIDI_RTL, 0, SIZE_MAX, NULL, &source);
+        if (status == CUI_TEXT_LAYOUT_UNAVAILABLE) {
+            cui_font_close(candidate);
+            printf("%s source-glyph raster check skipped: bidi layout unavailable (legacy text "
+                   "remains tested)\n",
+                   label);
+            return;
+        }
+        assert(status != CUI_TEXT_LAYOUT_MEMORY);
+        if (status != CUI_TEXT_LAYOUT_OK) {
+            cui_font_close(candidate);
+            continue;
+        }
+        fallback = candidate;
+        chosen = path;
+        break;
+    }
+    if (!fallback) {
+        printf("%s source-glyph raster check skipped: no supporting fixture; set %s\n", label, env);
+        return;
+    }
+    cui_text_layout_view view;
+    assert(cui_text_layout_get(source, &view));
+    assert(view.glyph_count > 0 && view.paragraph_level == 1);
+    for (size_t i = 0; i < view.glyph_count; ++i)
+        assert(view.glyphs[i].glyph_id != 0);
+    glyph_stats supported = {0};
+    assert(cui_text_layout_draw(source, 0, 0, glyph_count, &supported));
+    assert(supported.glyphs > 0 && supported.coverage > 0);
+    cui_text_layout_destroy(source);
+    cui_font *chain[] = {fallback};
+    assert(cui_font_set_fallbacks(primary, chain, 1));
+    cui_text_layout *actual = NULL;
+    assert(cui_font_layout_line(primary, text, 20, (cui_text_style){0}, CUI_BIDI_AUTO_LTR, 0,
+                                SIZE_MAX, NULL, &actual) == CUI_TEXT_LAYOUT_OK);
+    assert(cui_text_layout_get(actual, &view));
+    assert(view.glyph_count > 0 && view.paragraph_level == 1);
+    for (size_t i = 0; i < view.glyph_count; ++i)
+        assert(view.glyphs[i].glyph_id != 0);
+    for (size_t r = 0; r < view.run_count; ++r) {
+        assert(view.runs[r].face_index < view.face_count);
+        if (view.runs[r].face_index)
+            assert(view.faces[view.runs[r].face_index] == fallback);
+    }
+    glyph_stats explicit_layout = {0}, ordinary = {0};
+    assert(cui_text_layout_draw(actual, 0, 0, glyph_count, &explicit_layout));
+    assert(cui_font_draw(primary, text, 20, 0, 0, glyph_count, &ordinary));
+    assert(ordinary.glyphs > 0 && ordinary.coverage > 0 &&
+           ordinary.glyphs == explicit_layout.glyphs &&
+           ordinary.coverage == explicit_layout.coverage && ordinary.hash == explicit_layout.hash);
+    cui_size measured = cui_font_measure(primary, text, 20);
+    assert(measured.width == view.width && measured.height == view.height);
+    cui_text_layout_destroy(actual);
+    assert(cui_font_set_fallbacks(primary, NULL, 0));
+    cui_font_close(fallback);
+    printf("%s supported source glyphs and registered-fallback raster passed using %s\n", label,
+           chosen);
+}
+static void test_text(void) {
+    assert(!cui_font_open(NULL));
+    assert(!cui_font_open("/cui-test/nonexistent/font.ttf"));
+    const char *requested = getenv("CUI_TEST_FONT");
+    const char *paths[] = {requested, "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+                           "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                           "/usr/share/fonts/TTF/DejaVuSans.ttf"};
+    cui_font *font = NULL;
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]) && !font; i++)
+        if (paths[i])
+            font = cui_font_open(paths[i]);
+    if (!font) {
+        puts("text raster test skipped: set CUI_TEST_FONT to a font file");
+        return;
+    }
+    const char *text = "office caf\xc3\xa9";
+    cui_str str = {text, strlen(text)};
+    cui_size size = cui_font_measure(font, str, 18);
+    assert(size.width > 40 && size.height > 18);
+    cui_font_metrics metrics;
+    assert(cui_font_get_metrics(font, 18, (cui_text_style){0}, &metrics));
+    assert(metrics.ascent > 0 && metrics.descent >= 0 && metrics.line_height == size.height);
+    cui_font_metrics doubled;
+    assert(cui_font_get_metrics(font, 36, (cui_text_style){0}, &doubled));
+    assert(doubled.ascent > metrics.ascent * 1.8f && doubled.descent >= metrics.descent);
+    cui_font_metrics saved = metrics;
+    assert(!cui_font_get_metrics(font, NAN, (cui_text_style){0}, &metrics));
+    assert(!cui_font_get_metrics(font, 0, (cui_text_style){0}, &metrics));
+    assert(!cui_font_get_metrics(font, 4097, (cui_text_style){0}, &metrics));
+    assert(!cui_font_get_metrics(NULL, 18, (cui_text_style){0}, &metrics));
+    assert(!cui_font_get_metrics(font, 18, (cui_text_style){0}, NULL));
+    assert(
+        !cui_font_get_metrics(font, 18, (cui_text_style){.weight = (cui_text_weight)99}, &metrics));
+    assert(metrics.ascent == saved.ascent && metrics.descent == saved.descent &&
+           metrics.line_height == saved.line_height);
+    cui_size double_size = cui_font_measure(font, str, 36);
+    assert(double_size.width > size.width * 1.8f);
+    glyph_stats stats = {0};
+    assert(cui_font_draw(font, str, 18, 0, 0, glyph_count, &stats));
+    assert(stats.glyphs > 0 && stats.coverage > 0);
+    stats = (glyph_stats){0};
+    assert(cui_font_draw(font, (cui_str){"ffi", 3}, 18, 0, 0, glyph_count, &stats));
+    assert(stats.glyphs > 0 && stats.glyphs <= 3);
+    if (!requested)
+        assert(stats.glyphs < 3); /* packaged default fonts have an ffi ligature */
+    const char *const arabic_paths[] = {"/usr/share/fonts/noto/NotoSansArabic-Regular.ttf",
+                                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                                        "/usr/share/fonts/TTF/DejaVuSans.ttf"};
+    const char *const hebrew_paths[] = {"/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf",
+                                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                                        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                                        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf"};
+    test_rtl_fallback(font, "Arabic", cui_string("سلام"), "CUI_TEST_ARABIC_FONT", arabic_paths, 3);
+    test_rtl_fallback(font, "Hebrew", cui_string("שָׁלוֹם"), "CUI_TEST_HEBREW_FONT", hebrew_paths, 4);
+    assert(cui_font_measure(font, str, NAN).width == 0);
+    assert(cui_font_measure(font, str, -1).width == 0);
+    assert(cui_font_measure(font, (cui_str){NULL, 4}, 18).width == 0);
+    assert(!cui_font_draw(font, str, 18, INFINITY, 0, glyph_count, &stats));
+    cui_font_close(font);
+    puts("HarfBuzz ASCII shaping and FreeType coverage passed; RTL fixture checks reported above");
+}
+static void test_styled_font_faces(void) {
+    const char *regular = "/usr/share/fonts/noto/NotoSans-Regular.ttf";
+    const char *bold = "/usr/share/fonts/noto/NotoSans-Bold.ttf";
+    const char *mono = "/usr/share/fonts/liberation/LiberationMono-Regular.ttf";
+    cui_font *font = cui_font_open(regular);
+    if (!font) {
+        puts("styled font test skipped: packaged Noto Sans unavailable");
+        return;
+    }
+    cui_text_style strong = {.weight = CUI_TEXT_WEIGHT_BOLD};
+    cui_text_style code = {.monospace = true};
+    cui_str sample = cui_string("WiiW");
+    cui_size normal = cui_font_measure(font, sample, 24);
+    assert(cui_font_measure_styled(font, sample, 24, strong).width == normal.width);
+    assert(cui_font_measure_styled(font, sample, 24, code).width == normal.width);
+    cui_font *bold_face = cui_font_open(bold), *mono_face = cui_font_open(mono);
+    if (bold_face && mono_face) {
+        assert(cui_font_set_style(font, strong, bold_face));
+        assert(cui_font_set_style(font, code, mono_face));
+        cui_font_metrics selected_metrics, face_metrics;
+        assert(cui_font_get_metrics(font, 24, code, &selected_metrics));
+        assert(cui_font_get_metrics(mono_face, 24, (cui_text_style){0}, &face_metrics));
+        assert(selected_metrics.ascent == face_metrics.ascent &&
+               selected_metrics.descent == face_metrics.descent &&
+               selected_metrics.line_height == face_metrics.line_height);
+        assert(cui_font_get_metrics(font, 24, strong, &selected_metrics));
+        assert(cui_font_get_metrics(bold_face, 24, (cui_text_style){0}, &face_metrics));
+        assert(selected_metrics.ascent == face_metrics.ascent &&
+               selected_metrics.descent == face_metrics.descent &&
+               selected_metrics.line_height == face_metrics.line_height);
+        cui_size bold_size = cui_font_measure_styled(font, sample, 24, strong);
+        cui_size mono_size = cui_font_measure_styled(font, sample, 24, code);
+        assert(bold_size.width > 0 && mono_size.width > 0 && bold_size.width != normal.width &&
+               mono_size.width != normal.width);
+        glyph_stats stats = {0};
+        assert(cui_font_draw_styled(font, sample, 24, strong, 0, 0, glyph_count, &stats));
+        assert(stats.glyphs == 4 && stats.coverage > 0);
+        stats = (glyph_stats){0};
+        assert(cui_font_draw_styled(font, sample, 24, code, 0, 0, glyph_count, &stats));
+        assert(stats.glyphs == 4 && stats.coverage > 0);
+        assert(!cui_font_set_style(font, (cui_text_style){0}, bold_face));
+        assert(!cui_font_set_style(font, strong, font));
+        assert(cui_font_measure_styled(font, sample, 24, strong).width == bold_size.width);
+        assert(cui_font_set_style(font, strong, NULL));
+        assert(cui_font_measure_styled(font, sample, 24, strong).width == normal.width);
+        assert(cui_font_register_style(font, strong, bold));
+        assert(cui_font_measure_styled(font, sample, 24, strong).width == bold_size.width);
+        assert(!cui_font_register_style(font, strong, "/cui-test/nonexistent/font.ttf"));
+        assert(cui_font_measure_styled(font, sample, 24, strong).width == bold_size.width);
+        assert(cui_font_register_style(font, strong, bold));
+        assert(cui_font_measure_styled(font, sample, 24, strong).width == bold_size.width);
+    }
+    assert(
+        cui_font_measure_styled(font, sample, 24, (cui_text_style){.weight = (cui_text_weight)99})
+            .width == 0);
+    cui_font_close(font);
+    cui_font_close(bold_face);
+    cui_font_close(mono_face);
+}
+#endif
+static void asymmetric_shapes(void) {
+    cui_software *r = cui_software_create(64, 64, NULL);
+    assert(r);
+    cui_draw_command c = {.type = CUI_DRAW_RECT,
+                          .bounds = {8, 8, 48, 48},
+                          .color = {255, 0, 0, 128},
+                          .custom_corners = true,
+                          .corner_radii = {12, 0, 0, 6},
+                          .custom_border_edges = true,
+                          .border_edges = {0, 4, 2, 6}};
+    cui_draw_list list = {&c, 1, 64, 64};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 8, 8)[3] == 0 && pixel(r, 55, 8)[3] == 128 && pixel(r, 8, 55)[3] == 128 &&
+           pixel(r, 55, 55)[3] == 0);
+    c.type = CUI_DRAW_BORDER;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 8, 32)[3] == 0 && pixel(r, 54, 32)[3] == 128 && pixel(r, 32, 8)[3] == 128 &&
+           pixel(r, 32, 54)[3] == 128 && pixel(r, 32, 32)[3] == 0);
+    cui_draw_command clipped[] = {
+        {.type = CUI_DRAW_CLIP_PUSH, .bounds = {32, 0, 32, 64}}, c, {.type = CUI_DRAW_CLIP_POP}};
+    cui_draw_list clip_list = {clipped, 3, 64, 64};
+    assert(cui_software_render(r, &clip_list, (cui_color){0}));
+    assert(pixel(r, 20, 8)[3] == 0 && pixel(r, 40, 8)[3] == 128);
+    c.border_edges = (cui_border_edges){0};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    for (int y = 0; y < 64; y++)
+        for (int x = 0; x < 64; x++)
+            assert(pixel(r, x, y)[3] == 0);
+    c.corner_radii.top_left = NAN;
+    assert(!cui_software_render(r, &list, (cui_color){0}));
+    c.corner_radii.top_left = 12;
+    c.border_edges.bottom = INFINITY;
+    assert(!cui_software_render(r, &list, (cui_color){0}));
+    cui_software_destroy(r);
+}
+static void test_underlay_pixels(void) {
+    cui_context *ui = cui_create((cui_config){.width = 64, .height = 48});
+    cui_software *renderer = cui_software_create(64, 48, NULL);
+    assert(ui && renderer && cui_begin_frame(ui, 64, 48, .016f));
+    cui_begin_box(ui, 1, (cui_box){.width = 40, .height = 40, .background = {255, 255, 255, 255}});
+    assert(cui_set_underlay(ui, (cui_rect){-20, 10, 80, 20}, (cui_color){255, 0, 0, 255},
+                            (cui_corner_radii){0}));
+    cui_begin_box(ui, 2, (cui_box){.width = 20, .height = 20, .background = {0, 0, 255, 255}});
+    cui_end_box(ui);
+    cui_end_box(ui);
+    cui_draw_list list = cui_end_frame(ui);
+    assert(cui_software_render(renderer, &list, (cui_color){0, 0, 0, 255}));
+    assert(pixel(renderer, 5, 15)[2] == 255 && pixel(renderer, 5, 15)[0] == 0);
+    assert(pixel(renderer, 30, 15)[0] == 255 && pixel(renderer, 30, 15)[2] == 0);
+    assert(pixel(renderer, 45, 15)[0] == 0);
+    assert(pixel(renderer, 30, 30)[0] == 255 && pixel(renderer, 30, 30)[2] == 255);
+    cui_destroy(ui);
+    cui_software_destroy(renderer);
+}
+
+static void test_bitmap_pixels(void) {
+    const unsigned char pixels[] = {255, 0, 0,   255, 0,   255, 0,   128, 99, 99, 99, 99,
+                                    0,   0, 255, 255, 255, 255, 255, 255, 99, 99, 99, 99};
+    cui_software *r = cui_software_create(8, 8, NULL);
+    assert(r);
+    cui_draw_command d = {
+        .type = CUI_DRAW_IMAGE,
+        .bounds = {0, 0, 8, 8},
+        .bitmap = {.bitmap = {pixels, 2, 2, 12, 1}, .source = {0, 0, 2, 2}, .opacity = 1}};
+    cui_draw_list list = {.commands = &d, .count = 1, .width = 8, .height = 8};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 1, 1)[0] == 255 && pixel(r, 6, 1)[1] == 255);
+    assert(pixel(r, 6, 1)[3] == 128 && pixel(r, 1, 6)[2] == 255);
+    d.bitmap.source = (cui_rect){1, 0, 1, 1};
+    d.bitmap.opacity = .5f;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 1, 6)[1] == 255 && pixel(r, 1, 6)[3] == 64);
+    d.bitmap.grayscale = true;
+    d.radius = 4;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 0);
+    assert(pixel(r, 4, 4)[0] == 182 && pixel(r, 4, 4)[1] == 182);
+    d.bitmap.grayscale = false;
+    d.bitmap.custom_tint = true;
+    d.bitmap.tint = (cui_color){255, 100, 255, 128};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 4, 4)[1] == 100 && pixel(r, 4, 4)[3] == 32);
+    d.bitmap.source.w = 2;
+    assert(!cui_software_render(r, &list, (cui_color){0}));
+    cui_software_destroy(r);
+}
+static void test_mesh_pixels(void) {
+    cui_software *r = cui_software_create(8, 8, NULL);
+    assert(r && (cui_software_interface(r).capabilities & CUI_RENDER_MESH));
+    cui_mesh_vertex square[] = {{0, 0, 0, 0}, {4, 0, 0, 0}, {4, 4, 0, 0},
+                                {0, 0, 0, 0}, {4, 4, 0, 0}, {0, 4, 0, 0}};
+    cui_mesh_vertex saved[6];
+    memcpy(saved, square, sizeof(square));
+    cui_draw_command command = {
+        .type = CUI_DRAW_MESH,
+        .mesh = {
+            .vertices = square, .vertex_count = 6, .scale = 1, .color = {.125f, .25f, .5f, .5f}}};
+    cui_draw_list list = {&command, 1, 8, 8};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    /* Unpremultiply linear .25/.5/1 and sRGB encode; diagonal covered once. */
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++) {
+            const unsigned char *p = pixel(r, x, y);
+            assert(p[0] == 137 && p[1] == 188 && p[2] == 255 && p[3] == 128);
+        }
+    assert(pixel(r, 4, 2)[3] == 0 && memcmp(saved, square, sizeof(square)) == 0);
+    /* Reverse winding keeps the same coverage and shared-edge ownership. */
+    for (size_t i = 0; i < 6; i += 3) {
+        cui_mesh_vertex swap = square[i + 1];
+        square[i + 1] = square[i + 2];
+        square[i + 2] = swap;
+    }
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    for (int i = 0; i < 4; i++)
+        assert(pixel(r, i, i)[3] == 128);
+    command.mesh.origin_x = 2;
+    command.mesh.origin_y = 1;
+    command.mesh.scale = .5f;
+    cui_draw_command clipped[] = {
+        {.type = CUI_DRAW_CLIP_PUSH, .bounds = {3, 0, 5, 8}}, command, {.type = CUI_DRAW_CLIP_POP}};
+    cui_draw_list clips = {clipped, 3, 8, 8};
+    assert(cui_software_render(r, &clips, (cui_color){0}));
+    assert(pixel(r, 2, 1)[3] == 0 && pixel(r, 3, 1)[3] == 128 && pixel(r, 4, 1)[3] == 0);
+    /* S=y/4, T=1/4. At y=.5, coverage clamps to 1; at y=1.5
+     * .5-(.375^2-.25)/(.1875) = 13/12 clamps to 1; at y=2.5
+     * .5-(.625^2-.25)/(.3125) = .05 -> byte alpha 13. */
+    cui_mesh_vertex analytic[] = {{0, 0, 0, .25f}, {8, 0, 0, .25f}, {0, 8, 2, .25f}};
+    command.mesh = (cui_mesh_paint){analytic, 3, 0, 0, 1, {1, 0, 0, 1}};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 255 && pixel(r, 0, 1)[3] == 255);
+    assert(pixel(r, 0, 2)[3] == 13 && pixel(r, 0, 3)[3] == 0);
+    /* Horizontal derivative: S=x/4, T=.25 gives the same oracle. */
+    analytic[1].s = 2;
+    analytic[2].s = 0;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 2, 0)[3] == 13 && pixel(r, 3, 0)[3] == 0);
+    /* Nonconstant T checks both terms of the analytic gradient:
+     * S=x/4, T=y/4 at (.5,.5): f=-7/64, |grad|=sqrt(17)/16. */
+    analytic[0].t = 0;
+    analytic[1].t = 0;
+    analytic[2].t = 2;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 236);
+    /* Transform only XY. At transformed (.5,1.5), local (.25,.75),
+     * S=.0625,T=.1875, gradient=(-.125*.125,-.125) in magnitude. */
+    command.mesh.scale = 2;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 1)[3] == 255);
+    command.mesh.scale = 1;
+    /* The constant-S shader fastpath ignores T, even outside the curve. */
+    for (size_t i = 0; i < 3; i++) {
+        analytic[i].s = 0;
+        analytic[i].t = -100;
+    }
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 255);
+    /* Degenerate and extreme off-screen geometry safely produce no pixels. */
+    cui_mesh_vertex extreme[] = {{FLT_MAX, 0, 0, 0}, {FLT_MAX, 1, 0, 0}, {FLT_MAX, 2, 0, 0}};
+    command.mesh.vertices = extreme;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 0);
+    extreme[1].x = FLT_MAX / 2;
+    extreme[2].y = 3;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 0);
+    cui_mesh_vertex spanning[] = {{-1e30f, -1e30f, 0, 0}, {1e30f, -1e30f, 0, 0}, {0, 1e30f, 0, 0}};
+    command.mesh.vertices = spanning;
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    assert(pixel(r, 0, 0)[3] == 255 && pixel(r, 7, 7)[3] == 255);
+    command.mesh.vertices = extreme;
+    cui_draw_list empty = {0};
+    assert(cui_software_render(r, &empty, (cui_color){7, 8, 9, 10}));
+    unsigned char before[8 * 8 * 4];
+    memcpy(before, cui_software_pixels(r, NULL, NULL), sizeof(before));
+    cui_draw_command invalid[] = {
+        {.type = CUI_DRAW_RECT, .bounds = {0, 0, 8, 8}, .color = {255, 0, 0, 255}}, command};
+    cui_draw_list bad = {invalid, 2, 8, 8};
+    invalid[1].mesh.vertex_count = 2;
+    assert(!cui_software_render(r, &bad, (cui_color){0}));
+    assert(memcmp(before, cui_software_pixels(r, NULL, NULL), sizeof(before)) == 0);
+    invalid[1].mesh.vertex_count = 3;
+    extreme[0].s = NAN;
+    assert(!cui_software_render(r, &bad, (cui_color){0}));
+    assert(memcmp(before, cui_software_pixels(r, NULL, NULL), sizeof(before)) == 0);
+    extreme[0].s = 0;
+    invalid[1].mesh.scale = 0;
+    assert(!cui_software_render(r, &bad, (cui_color){0}));
+    cui_software_destroy(r);
+}
+int main(void) {
+    test_mesh_pixels();
+#ifdef CUI_HAS_TEXT
+    test_styled_font_faces();
+#endif
+    test_bitmap_pixels();
+    test_underlay_pixels();
+    asymmetric_shapes();
+    cui_software *r = cui_software_create(16, 16, NULL);
+    assert(r);
+    cui_draw_command commands[] = {
+        {.type = CUI_DRAW_RECT, .bounds = {0, 0, 16, 16}, .color = {255, 0, 0, 128}},
+        {.type = CUI_DRAW_CLIP_PUSH, .bounds = {4, 4, 8, 8}},
+        {.type = CUI_DRAW_CLIP_PUSH, .bounds = {6, 2, 8, 6}},
+        {.type = CUI_DRAW_RECT, .bounds = {0, 0, 16, 16}, .color = {0, 255, 0, 255}},
+        {.type = CUI_DRAW_CLIP_POP},
+        {.type = CUI_DRAW_CLIP_POP}};
+    cui_draw_list list = {commands, 6, 16, 16};
+    assert(cui_software_render(r, &list, (cui_color){0, 0, 255, 255}));
+    assert(pixel(r, 0, 0)[0] == 128 && pixel(r, 0, 0)[2] == 127 && pixel(r, 0, 0)[3] == 255);
+    assert(pixel(r, 6, 4)[1] == 255);
+    assert(pixel(r, 5, 4)[1] == 0);
+    assert(pixel(r, 6, 8)[1] == 0);
+    commands[0] = (cui_draw_command){.type = CUI_DRAW_RECT,
+                                     .bounds = {2, 2, 12, 12},
+                                     .radius = 6,
+                                     .color = {255, 255, 255, 255}};
+    list.count = 1;
+    assert(cui_software_render(r, &list, (cui_color){0, 0, 0, 0}));
+    assert(pixel(r, 2, 2)[3] == 0);
+    assert(pixel(r, 8, 8)[3] == 255);
+    commands[0] = (cui_draw_command){.type = CUI_DRAW_BORDER,
+                                     .bounds = {2, 2, 12, 12},
+                                     .radius = 3,
+                                     .stroke = 2,
+                                     .color = {255, 255, 255, 255}};
+    assert(cui_software_render(r, &list, (cui_color){0, 0, 0, 0}));
+    assert(pixel(r, 8, 2)[3] == 255);
+    assert(pixel(r, 8, 8)[3] == 0);
+    commands[0] = (cui_draw_command){
+        .type = CUI_DRAW_RECT, .bounds = {0, 0, 1, 1}, .color = {100, 40, 20, 128}};
+    assert(cui_software_render(r, &list, (cui_color){0, 0, 0, 0}));
+    assert(pixel(r, 0, 0)[0] == 100 && pixel(r, 0, 0)[3] == 128);
+    commands[0].type = CUI_DRAW_CLIP_POP;
+    assert(!cui_software_render(r, &list, (cui_color){0}));
+    commands[0] = (cui_draw_command){.type = CUI_DRAW_RECT, .bounds = {1e30f, 1e30f, 10, 10}};
+    assert(cui_software_render(r, &list, (cui_color){0}));
+    commands[0].bounds.x = NAN;
+    assert(!cui_software_render(r, &list, (cui_color){0}));
+    assert(!cui_software_resize(r, 0, 16));
+    assert(cui_software_resize(r, 8, 8));
+    unsigned w, h;
+    cui_software_pixels(r, &w, &h);
+    assert(w == 8 && h == 8);
+    cui_software_destroy(r);
+    puts("software renderer geometry, nested clipping and straight alpha passed");
+#ifdef CUI_HAS_TEXT
+    test_text();
+#endif
+    return 0;
+}

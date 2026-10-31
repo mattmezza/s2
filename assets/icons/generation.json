@@ -1,0 +1,7 @@
+{
+  "provider": "Runware",
+  "model": "runware:101@1",
+  "prompt": "A professional UI icon sprite atlas, exactly 4 columns and 4 rows, 16 separate icons on a perfectly uniform pure black background. Each icon centered in its own equal square cell, ample padding, no grid lines. Thin consistent white monoline strokes, clean geometric vector aesthetic, premium desktop annotation app, no gradients or shadows. Row 1 left to right: mouse cursor pointer, diagonal arrow pointing upper right, diagonal straight line, pencil. Row 2: circle enclosing the numeral 1, rectangle outline, circle outline, letter T text tool. Row 3: chisel highlighter, marker pen, four square mosaic grid, droplet blur. Row 4: eyedropper pipette, floppy disk save, two overlapping squares copy, question mark help. Precisely 16 icons, pure black canvas, white line art only, no additional text or labels.",
+  "taskUUID": "59c92efd-d125-4f26-8f2c-e8943acf24d6",
+  "cost": 0.0037
+}

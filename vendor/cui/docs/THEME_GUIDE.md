@@ -1,0 +1,54 @@
+# Themes
+
+A `cui_theme` C struct carries surface/background, text/muted, primary/on-primary, border/focus/destructive colors and typography/spacing/radius/control height. `cui_theme_light`, `dark`, `high_contrast`, and `terminal` return runtime values. Pass the theme to every styled call; copying and adjusting a token is an explicit per-component override.
+
+Prefer component option overrides for local changes: Button has `custom_colors`
+and Avatar has explicit fallback colors. A theme copy remains useful when a whole
+subtree shares an override. The public struct stays flat for compatibility;
+grouping its fields would break existing designated initializers and bindings.
+Button variant names describe presentation, while `CUI_THEME_BUTTON_*` names
+describe shared palettes; see [the mapping](BUTTON.md). In particular, Ghost has
+no dedicated theme palette enum.
+
+The website follows your system light/dark preference by default. Its header palette button selects Follow System, a built-in theme, or one of the pinned named GPUI palette adaptations; an explicit choice persists across visits. The Theme preview shows six actual semantic color tokens alongside typography and controls. It is a design-system demonstration, rather than a separate input widget. Native applications choose a `cui_theme` and pass it into styled component calls; system appearance is supplied by the host. High contrast and the terminal theme demonstrate alternative presentation over the same base behavior.
+
+Motion uses host frame time and component state; Switch, Shimmer, disclosure, loading indicators and indeterminate Progress expose reduced-motion handling. A comprehensive typography/shadow/motion token system, native theme-file loader and automatic global density provider remain pending. The gallery density selector adjusts its example theme.
+
+Intent tokens `warning`, `success`, `info`, and `danger` can be used as filled
+surfaces or as text/borders on the theme surface. `on_warning`, `on_success`,
+`on_info`, and `on_danger` supply their filled-surface text colors. All four built-in
+themes test at least 4.5:1 contrast for each pair and each intent color against its
+surface. Applications extending a custom theme must set these new fields; the
+fields append to the prior public structure rather than reordering existing ones.
+
+Each theme has `buttons[CUI_THEME_BUTTON_*]` palettes with independent filled
+normal/hover/active colors, foreground, outlined normal/hover/active colors,
+outlined foreground and borders. Default, primary, secondary and the four intent
+palettes can be overridden independently. Link normal/hover/active foregrounds,
+input background/border, secondary foreground and accent colors are separate.
+Built-in constructors derive these initial values from CUI's own palette; custom
+themes must initialize the extended fields. These are solid-color tokens; gradient
+backgrounds and shadows remain separate rendering capabilities.
+
+`spring_control` provides response seconds, damping ratio, epsilon and travel
+permission (defaults: 0.18 seconds, 1, 0.001, true) for component motion. A theme's
+motion settings are configuration; components still own their retained motion
+state and the host supplies time/redraw scheduling.
+
+`popover` and `radius_lg` independently style notification surfaces. Built-in themes initialize popover to surface and the large radius to radius+2 (zero remains square); applications can override both without changing ordinary controls.
+
+The independent `secondary` background and `secondary_foreground` tokens style semantic secondary content such as Tag. Button palettes remain separately overridable.
+
+Tabs have independent `tab_foreground`, `tab_active_foreground`, `tab_active`, `tab_bar`, `tab_bar_segmented`, and `secondary_hover` colors. These do not follow later edits to Button palettes automatically. `spring_move` configures positional motion separately from `spring_control`, defaulting to response0.28seconds, damping0.85, epsilon0.1 and enabled travel.
+
+## Override a token
+
+```c
+cui_theme theme = cui_theme_light();
+theme.radius = 8;
+theme.font_size = 16;
+theme.gap = 12;
+cui_button(ui, id, &theme, cui_string("Save changes"), false);
+```
+
+Retain the chosen theme in application state. Change it in response to your host's appearance notification or theme menu callback and invalidate the context. Component values and models remain intact when the theme changes. `cui_theme_preset_get` loads a named palette by index without exposing platform types; see the Theme Presets guide for the pinned collection.

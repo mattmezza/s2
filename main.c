@@ -21,14 +21,15 @@ void
 print_usage(const char *argv0)
 {
 	fprintf(stderr,
-	        "usage: %s [input_path] [-i path|-] [-o path] [-C class] [-D absdir] [--normal-window] [-c] [-h] [-v]\n"
+	        "usage: %s [input_path] [-i path|-] [-o path] [-C class] [-D absdir] [--modal] [-c] [-h] [-v]\n"
 	        "\n"
 	        "  -i <path|->  input image path or stdin ('-')\n"
 	        "  -o <path>    output image path\n"
 	        "  -C <class>   X11 WM_CLASS instance/class value\n"
 	        "  -D <absdir>  absolute save directory override for Ctrl+S\n"
-	        "  --normal-window  use normal window type instead of dialog\n"
+	        "  --modal     float centered as a dialog (default: regular window)\n"
 	        "  -c           copy rendered result to clipboard on finish\n"
+	        "  --licenses  show embedded font license\n"
 	        "  -h           show help\n"
 	        "  -v           show version\n",
 	        argv0);
@@ -43,6 +44,7 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 	memset(cfg, 0, sizeof(*cfg));
 	cfg->output_path = "./s2.png";
 	cfg->window_class = default_window_class;
+	cfg->normal_window = 1;
 
 	for (i = 1; i < argc; i++) {
 		arg = argv[i];
@@ -52,6 +54,8 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 			cfg->show_version = 1;
 		} else if (strcmp(arg, "-c") == 0) {
 			cfg->copy_on_finish = 1;
+		} else if (strcmp(arg, "--modal") == 0) {
+		cfg->normal_window = 0;
 		} else if (strcmp(arg, "--normal-window") == 0) {
 			cfg->normal_window = 1;
 		} else if (strcmp(arg, "-i") == 0) {
@@ -61,6 +65,7 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 			}
 			cfg->input_kind = (strcmp(cfg->input_path, "-") == 0) ? INPUT_STDIN : INPUT_FILE;
 		} else if (strcmp(arg, "-o") == 0) {
+            cfg->output_path_explicit=1;
 			if (!next_arg(argc, argv, &i, &cfg->output_path)) {
 				fprintf(stderr, "s2: missing value for -o\n");
 				return 2;
@@ -98,6 +103,7 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 int
 main(int argc, char *argv[])
 {
+ if(argc==2 && !strcmp(argv[1],"--licenses")) {editor_print_licenses();return 0;}
 	int rc;
 	struct app_config cfg;
 	struct image img;

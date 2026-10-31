@@ -1,0 +1,162 @@
+# Charts
+
+`cui_chart_render` rasterizes into caller-owned, straight-alpha RGBA8 pixels. Allocate at least `width * height * 4` bytes and keep the buffer alive through renderer completion. `cui_chart` renders the bitmap itself on each frame, including the first Candlestick frame and subsequent datum revisions. Call `cui_chart_render` directly for base-only use or explicit raster control; a matching cache key avoids duplicate raster work when both APIs are used. Set `logical_width` and `logical_height` to render at a higher pixel density than the chart's logical size; hit coordinates use logical size. A fresh styled state starts the source one-second appear animation automatically and advances it from the core frame clock. `disable_appear` (including a gallery animate toggle set to false) or reduced motion draws it complete; an explicit `cui_chart_render` before styling preserves caller-supplied reveal progress. Calling `cui_chart_render_animated` before `cui_chart` in the same frame reuses the raster when the visual input matches; changed dimensions, options, or datum values are rendered again. A nonzero `data_revision` enables a cache: increment it whenever a datum, series, link, or fill callback's user data changes in place. Zero disables caching. State, input arrays, strings, and output pixels remain caller-owned.
+
+Styled `cui_chart` and `cui_chart_render_animated` automatically measure Sankey label margins when all four margins are zero. For base-only rendering, call `cui_chart_measure_sankey_margins(ui, &options)` and assign the result to `options.sankey_margins` before rendering; this reserves source-style left, right, top, and bottom space. Use the same options for layout, raster, and hit testing. Set `custom_sankey_margins` to retain explicit zero margins and the compact graph.
+
+For an outside value axis, styled `cui_chart` and `cui_chart_render_animated` measure the tick-label gutter automatically when `value_axis_gutter` is zero. Pure base callers can call `cui_chart_measure_value_axis_gutter(ui, &options)` after choosing the tick formatter and assign its result to `options.value_axis_gutter` before rendering. Use the same options for raster and hit testing. The helper follows the source minimum of 32px plus a 4px label gap; zero uses the source 32px minimum for Line/Area and vertical Bar. Candlestick has no vertical value-axis gutter in the pinned source. Horizontal Bar uses a fixed 32px bottom gutter.
+
+The adapter covers seven chart families. Line and area accept natural, linear, and step-after curves and up to seven additional series; each extra series can select its own curve, stroke, and area/radar fill. Bars support top, bottom, left, and right alignment, including negative values. Two-stop base-to-tip gradients, a per-pixel bar fill callback for chart-aware gradients or patterns, uniform or individually controlled rounded corners, and explicit reveal progress are available; set `reduced_motion` to draw a complete bar immediately. `cui_chart_render_animated(ui, state, options)` drives all seven families from the core frame clock using the source one-second ease-out-quart timing, replays when `appear_key` changes, and honors `cui_reduced_motion(ui)`. `appear_duration` overrides one second, and `disable_appear` draws immediately. Direct `cui_chart_render` remains deterministic with caller-supplied progress. Their band geometry spans the full category dimension, apart from an outside value-axis gutter. Vertical value ranges use the source 20px category-axis gap when shown and the 10px/12px far-end clearance without/with bar-value labels; horizontal outside value labels reserve 32px below the bands. Band geometry uses the source defaults for inner/outer padding (0.4/0.2) and a 30px maximum width; caller options can change padding, width cap, unfinished band count, minimum length, and value-label formatting. `cui_chart_bar_bounds` exposes the same geometry used by the raster and hover lookup. Pie supports donut radius, a default outer radius of 40% of pixel height, slice padding, and optional outside labels with leader lines. `cui_chart_pie_labels` computes caller-owned overlap-adjusted positions and omits slices below 0.5 degrees; label text fades in after 70% of the sweep. Candlesticks validate OHLC, scale the price domain to observed lows and highs, and use the source full-width band scale (0.4 inner/0.2 outer padding, 30px width cap) with 0.8 body width, a 10px price headroom and 20px x-axis gutter, four source grid guides at quarter-height intervals, no implicit vertical axis, and bullish/bearish colors. Their hover band springs between candle centers and covers the plot above that gutter. `cui_chart_candle_bounds` exposes wick/body geometry; `candle_body_ratio`, `max_bar_width`, and `pie_outer_radius` allow overrides. Sankey computes an acyclic graph's longest-path layers and proportional node/link widths, then uses six weighted bidirectional relaxation passes by default with collision resolution, source post-relaxation column centering, and 0.15-height staggering of equal-height single-node runs; `sankey_iterations` overrides the pass count; `cui_chart_sankey_layout` exposes the caller-owned node geometry and rejects cycles before changing output. `cui_chart_sankey_link_bounds` exposes per-end ribbon centers and widths after stable source/target sorting; each side fills its node height even for imbalanced flows. The raster draws source-style cubic ribbons with source-to-target color gradients, a 0.3 opacity, and a 1px minimum link width by default. Sankey node text is opt-in, matching the source builder default; rounded nodes, value labels, font size, and label gap are configurable. Radar accepts the same additional series, a pinned maximum/outer radius, translucent fill, and optional vertex dots around dimension spokes. The theme helper fills absent colors, and the styled adapter draws category/value labels, simple legends and structured hover rows as CUI text over the bitmap. Default hover rows include swatches, muted labels, and right-aligned values; Bar tooltip swatches use the first gradient stop when configured, matching the source; Candlestick rows use Open/High/Low/Close labels with the direction color on the swatch; numeric values retain foreground unless `tooltip_value_color` overrides them. Set `tooltip_content` to draw caller-defined CUI tooltip content for the hovered datum; it replaces the default title and rows and runs once while hovered. Numeric label and hover formatting callbacks write into bounded buffers. `cui_chart_hit_test` returns a point or slice, a radar dimension, or a Sankey node.
+
+For Line and Area, grid ticks, value-axis labels, and pointer hit testing cover the full plot height while the value scale retains its top/bottom headroom; tick values extrapolate at the plot edges as in the source. A Cartesian `tick_count` of one clamps to two like the source value/y tick setters; Radar accepts one ring and defaults to four rings.
+
+Default Cartesian tick labels follow the pinned formatter: whole numbers without decimals and other values to one decimal place. Unformatted tooltip and value-label numbers use the shortest fixed decimal that round-trips within the bounded C buffer; extreme magnitudes fall back to scientific notation. The source uses its host number formatter for those extremes.
+
+The 38 named GPUI Kit theme presets now carry their eight pinned Chart colors: five series colors, bullish, bearish, and grid. `cui_chart_theme` uses `chart_2` for Line, Area, Bar, and Pie, cycles `chart_1` through `chart_5` for Radar and Sankey, and honors caller color overrides. The four independent CUI built-in themes provide their own chart-token defaults.
+
+This remains partial against the pinned GPUI Kit source. The method audit below lists the remaining gaps in labels, fills, axes, Sankey options, and hover effects. Outside value-axis gutters can be measured before rasterization with the helper above. `cui_plot` remains available for independent scales, ticks, pan/zoom, and clipping.
+
+## Frozen source method audit
+
+This maps the public builders in the pinned GPUI Kit seven-chart sources to this C adapter. A C datum array replaces source `new`, `x`, `y`, `value`, and OHLC accessor closures. `cui_id` replaces `id`. Every family uses `noninteractive`, `cui_chart_render_animated`/`appear_key`/`disable_appear`, and `tooltip_content` for custom content; `tooltip_format` formats numeric rows. `tooltip_title`, `tooltip_label`, `tooltip_value`, and `tooltip_value_color` customize default hover content independently; `tooltip_content` takes precedence when set. Default tooltip content appears in a measured, at-least-150px portal beside the pointer, flipping horizontally and vertically at the plot midpoint; the portal can extend beyond the chart clip like the source's deferred tooltip. Custom `tooltip_content` can pair with `tooltip_measure` to size the portal from intrinsic content dimensions plus 8px padding on each side, with the source 150px default minimum width. Measurements must be finite and between 0 and 16368 per dimension; invalid or larger results, or no measure callback, use the legacy 150×64 size. The portal uses the source 120ms cubic-bezier enter/exit opacity, retaining the last datum as it fades out, and reduced motion snaps its opacity. Line/Area hover draws a point-aligned crosshair from the chart top to the x-axis gutter (or full height when the axis is hidden), plus per-series halo dots using the same pure point geometry as the raster. Their pointer positions follow a 120ms critically damped spring and their mark opacity enters/exits over the source fast tier; reduced motion snaps immediately. Bar draws an 8%-foreground translucent band across the source value extent (starting at the top for bottom bars or below the axis gutter for top bars) and fades other bars by up to 45% according to distance from its springing center; Pie springs the hovered slice's outer radius outward by 6px and fades other slices by up to 35%; Sankey fades unrelated links by up to 70%, retaining the last node during exit fade. Reduced motion snaps all three to their targets. All hover marks share the source tooltip's cubic fade; custom content must supply its natural size through `tooltip_measure` for a content-sized portal.
+
+| Source family | Covered builder methods | Implementation detail or remaining gap |
+| --- | --- | --- |
+| Line | `stroke` → `series[0]`; `natural`/`linear`/`step_after` → `curve`; `dot` → `show_dots`; `grid`/`grid_dashed` → `hide_grid`/`grid_solid`; `grid_columns`, `reference_line(s)`, `tick_margin`, `x_tick_count`, `point_count`, `x_axis`, `y_axis`, `y_axis_label_placement`, `y_domain`, `y_tick_count`, `y_tick_format` → corresponding options; `name` → semantic name. | `custom_y_padding`/`y_padding_top`/`y_padding_bottom` map source headroom; hiding the x-axis returns its 20px gutter to the plot for marks, ticks, and hit-testing. The point scale starts after the measured left value-axis gutter and ends at the chart right edge; an unfinished `point_count` keeps leading data at the same slots, and `x_tick_count` selects labels across all reserved slots rather than just populated data. Pure base callers can measure the outside value-axis gutter with `cui_chart_measure_value_axis_gutter(ui, &options)` and assign it to `value_axis_gutter` before rasterization; zero uses source 32px for Line/Area and vertical Bar. The crosshair and per-series halo dots glide at the source 120ms fast tier; their opacity uses the shared source cubic-bezier hover fade. The source 4px/2px dashed guide uses a bounded 1×4096 RGBA context resource by default; charts taller than 4096 logical pixels use a solid 1px fallback. Set `state.hover_guide_pixels` and `hover_guide_capacity` to caller-owned RGBA scratch of at least `ceil(logical plot height) * 4` bytes to avoid context allocation or support taller guides (up to 16384 logical pixels); that scratch must remain alive through draw-list consumption. |
+| Area | Line's axes, curves, point count, grid, reference, names, and tooltip controls; up to seven extra `y` series in `extra_series`. | `primary_fill` and each extra series `fill` override the derived solid fill; `area_radar_fill_pixel` provides caller-defined chart-space gradients or patterns; source Background objects are represented as pixels. Per-series stroke/curve are available in `cui_chart_series`. `custom_y_padding` controls top/bottom headroom; measured outside gutter uses the shared pre-render helper. |
+| Bar | `alignment`, `band_count`, `band_tick_count`, `corner_radii`, `fill`, `fill_gradient`, `grid`, `grid_dashed`, `max_band_width`, `min_length`, `padding_inner`, `padding_outer`, `tick_margin`, `value_axis`, `value_tick_count`, and `value_tick_format` map to bar geometry, fill callback/two-stop gradient, and shared options. `label`/`label_color` map to `show_bar_values`/`bar_label_format`/`bar_label_color`; `label_axis` maps to `hide_x_axis`, and `value_axis`/`value_axis_label_placement` map to `show_y_axis`/`y_axis_inside`. | Source's arbitrary Background object is represented as pixels. `bar_label_color_fn` supplies per-datum label colors; the pre-render gutter helper sets a measured outside gutter; horizontal outside value-axis labels use the source 32px bottom gutter and follow the value scale along x. Grid ticks run from each alignment's far value edge toward its baseline, omitting that baseline; the category-axis stroke follows zero rather than a fixed chart edge. Styled `cui_chart` and `cui_chart_render_animated` measure horizontal gutters automatically unless `custom_horizontal_bar_gutters` is set. Base-only callers can call `cui_chart_measure_horizontal_bar_gutters(ui, &options, &category, &value_end)`, then set `custom_horizontal_bar_gutters`, `bar_category_gutter`, and `bar_value_end_gutter` on the options used for rasterization, hit-testing, and painting. It measures the widest visible category plus 4px and the widest formatted bar value plus 4px, or reserves the source 8px end gap without values; a hidden category axis uses zero category gutter. The helper leaves outputs untouched on invalid or empty geometry. Category and bar-value labels use measured text bounds; categorical labels sit beside the horizontal zero line or on the empty side of each vertical zero line by sign and alignment; `cui_chart_bar_band_center` keeps zero-length category labels on the same source band scale. |
+| Pie | `color`/`value` map to datum color/value; `inner_radius`, `outer_radius`, `pad_angle` map directly. | `pie_inner_arc_radius_fn`/`pie_outer_arc_radius_fn` expose the source arc value, start/end angles, and pad angle to per-slice radius callbacks, including leader-line edge geometry; legacy `pie_inner_radius_fn`/`pie_outer_radius_fn` remain available with datum/index/default-radius inputs and yield to arc callbacks when both are set; zero-value arcs do not invoke arc callbacks; `pie_label_line_color_fn` sets per-slice leader colors; outside `label` text uses datum labels measured and placed on the matching side of the leader anchor, and global `pie_label_color`/`pie_label_line_color`/`pie_label_gap` cover the related styling methods. Pie `name` uses the chart name and per-datum `tooltip_name` maps to `tooltip_label`; the default value includes percentage share. `pie_tooltip_value` receives the source value and percentage share and overrides the row text; shared `tooltip_value` remains available as a lower-precedence fallback. |
+| Radar | `dot`, `grid`, `grid_levels`, `max_value`, `outer_radius`, and `stroke` map to shared/radar options; text `label` uses datum labels; extra value series are supported. | Solid `primary_fill`/extra-series `fill` are available; `area_radar_fill_pixel` supplies gradients or patterns; hovered dimensions draw source-sized vertex marks for each series, with coordinates available from `cui_chart_radar_vertex`; `radar_label_color` and `radar_label_gap` style dimension labels. Set both `radar_label_measure` and `radar_label_paint` to replace text with caller-owned CUI content at each measured label anchor; invalid measured sizes skip that label. |
+| Candlestick | `open`, `high`, `low`, `close`, `bullish`, `bearish`, `body_width_ratio`, `grid`, `tick_margin`, `x_axis` map to datum/options; default tooltip has OHLC rows. | `max_bar_width` overrides the source 30px default; `tooltip_value_color` can style each OHLC row; more complex row layouts use `tooltip_content`. |
+| Sankey | `iterations`, `node_align`, `node_padding`, `node_width`, `min_link_width`, `node_color`, `node_label`, and `tooltip_value` map to graph/options, datum colors/labels and formatter. Sorted link endpoints and cubic ribbons use source geometry. `sankey_value_scale` offers linear/square-root layout while node throughput stays raw; `sankey_link_opacity` overrides the source 0.3 default. | `sankey_node_corner_radius`, `sankey_font_size`, `sankey_label_gap`, `sankey_show_labels`, `sankey_show_values`, and `sankey_value_format` cover simple label/node methods; `sankey_labels` overrides simple lines with up to 16 styled text lines per node, taking raw throughput; `sankey_label_measure` and `sankey_label_paint` instead render arbitrary caller-owned CUI content without a line-count cap; measured labels follow source first-column-left, terminal-right, and middle-above placement without the former 64-node cutoff; source-style measured graph margin reservation is available through `cui_chart_measure_sankey_margins`, which leaves all margins zero when every custom label measures empty; the bounded text-line callback caps at 16, while measured/painted content supports arbitrary nested lines; D3 middle-out collision, per-pass alpha/beta weights, targetTop/sourceTop slot relaxation, and neighbor link reordering are implemented with bounded adjacency arrays; the graph now uses the source extent directly at measured margins, with no implicit 8px inset; `tooltip_name` and `tooltip_value` map to `tooltip_label` and `tooltip_value` callbacks; when `tooltip_value` is absent, the default row inherits `sankey_value_format` as the source inherits `value_label`. Link color defaults to a source-to-target gradient; an explicit link color overrides it. |
+
+All seven source families expose `appear`, `appear_key`, `id`, and `interactive`; the shared mapping above applies to each. Source builder methods for category/value accessors map to caller-supplied `cui_chart_datum` fields rather than callback registration. Line, Area, and Radar hovered marks use the source 8px filled dot, 1px background stroke, and 20px fill-color halo whose diameter and opacity follow hover progress; Radar retains its last marks during the exit fade. Horizontal Bar releases its category-label gutter when `hide_x_axis` is set and reserves it on the appropriate side for Left or Right alignment. Styled rendering measures horizontal label widths per frame like the source; pure base rendering uses explicit preflight or the fixed 24px and 12px fallback. The explicit representation and paint differences above remain partial despite the available chart type names; this audit does not claim verified full source parity.
+
+Cartesian line and area outlines use a 2px stroke by default, with round segment ends and coverage-based edge smoothing. Set `cui_chart_options.line_width` in bitmap pixels to customize it; positive values are capped at 16px, while zero, negative or nonfinite values select the default. The width participates in the render cache key. Grid/axis strokes keep their previous dimensions. Natural, linear and step-after curves share the same stroke painter.
+
+## Shared Sankey solver
+
+Chart Sankey topology/relaxation and end-width calculation now delegate to the
+pure Base model in [PLOT_MODEL.md](PLOT_MODEL.md#shared-base-sankey-graph-model).
+The Chart API keeps its existing policies: zero node width selects 10px, zero
+padding selects 16px, zero iterations selects six, and margins define the usable
+extent. This differs deliberately from standalone Plot's 24px/8px defaults and
+explicit-zero behavior. Node `throughput` still reports raw max(incoming,outgoing)
+flow, including when heights use sqrt-scaled values. Zero-flow alignment also keeps Chart's older summed-flow policy: zero-valued
+edges do not anchor Justify/Center alignment, while source-default Plot treats
+all edges structurally. The adapter selects the explicit Base compatibility
+option. Chart's existing input,
+label, margin and capacity validation remains in the adapter.
+
+`cui_chart_sankey_link_bounds` uses caller-supplied node positions directly; it
+does not run topology or move nodes. Unranked/cyclic projected geometry remains
+usable for this width-only operation. It retains independent end widths and
+neighbor-y ordering with input-index ties. The shared Base helper validates
+finite ordered y coordinates and endpoint/value data without requiring graph
+ranks. No second Chart solver remains. Builds compiling Chart Base directly
+must also link `src/base/cui_plot.c`; public Chart types and defaults are unchanged.
+
+Exceptionally large linear Sankey link values are uniformly normalized only for
+shared-solver geometry, including endpoint breadths. This preserves finite raw
+node throughput and layout ratios without requiring `long double` to have a
+wider exponent range than `double`. Raw node sums beyond `DBL_MAX` still fail;
+the pure Plot solver retains its strict overflow policy. Ratios too small to
+represent after normalization may vanish in geometry.
+
+## Frozen source axis audit (87d10ae5)
+
+The styled Chart reference lives in `crates/component/src/chart`; its shared
+axis implementation lives in `crates/base/src/plot/axis.rs` (there is no
+`crates/base/src/chart` directory in the frozen checkout). Line/Area category
+labels now match `build_point_x_labels`: the first label aligns left, the last
+aligns right, and intermediate/single labels center on their ticks. These
+alignments also follow the logical bounds of a scaled bitmap.
+
+Value-axis text uses host measurement rather than a fixed 48px box. Outside
+vertical labels align their right edge four pixels before the measured gutter;
+Line/Area labels clamp within the plot vertically. Inside labels start two
+pixels from the plot's left edge and sit above their grid line, except the top
+label sits below it. Horizontal Bar labels center at their value tick and sit
+six pixels below the reserved 32px outside axis gutter, or 12px above the bottom
+edge inside. Value labels and category labels both honor `hide_axes`.
+
+Every configured value tick is measured and painted up to the existing 1000
+tick validation limit; the former silent 32-label subsampling is removed.
+`custom_x_tick_count = true` distinguishes an explicit `x_tick_count = 0`
+(no category labels) from the legacy zero/default stride behavior. This field
+is appended to the options structure: earlier field offsets and zero-initialized
+source behavior remain unchanged, but binary consumers must rebuild for the
+larger options structure. Mixed-sign domains spanning `-DBL_MAX` to `DBL_MAX`
+use the shared scale's overflow-safe inverse/map for horizontal tick values and
+category zero-line placement.
+
+The frozen seven Chart families expose no legend builder or composition.
+`hide_legend` and the CUI extra-series text legend are adapter additions, not
+source parity evidence; the existing legend still has fixed text placement
+and no swatch/layout API. This audit verifies the axis behavior with headless
+geometry and formatter assertions, including 65 ticks, explicit-zero selection,
+inside/outside bounds, scaled category endpoints, and extreme finite domains.
+It does not certify full Chart-family parity: tooltip portal layout, animation
+trajectories, shape rasterization, and arbitrary source Background paint remain
+separate validation gaps. Generated `dist/cui_chart.h` must be regenerated by
+the integrator after merging these public-header changes.
+
+## Frozen source tooltip and hit audit
+
+`cui_chart_update_hover(state, options, x, y)` exposes the existing retained
+selection model to headless and external hosts. Coordinates are chart-local
+logical pixels, just like `cui_chart_hit_test`; the function returns that hit
+and updates `hovered`, `hovered_value`, and the cursor anchor. An outside or
+nonfinite point clears active selection while retaining the last visual/cursor
+for the styled exit fade. Noninteractive options also clear the anchor so
+re-enabling interaction cannot revive a stale tooltip. Styled Chart calls the
+same helper for pointer movement and refreshes a stationary active hit each
+frame; Sankey tooltip values therefore follow changed raw throughput without
+requiring another pointer event.
+
+Pie hit selection now follows the pinned `Arc::contains`: select the original
+start-inclusive/end-exclusive angular interval and then test the slice radii.
+The original interval includes a painted `pad_angle` gap, which does not carve
+out a separate hover hole in the source. A donut's center and points beyond its
+outer radius remain unselected. Angle/radius calculations avoid intermediate
+`2*pi*value` overflow and squared-radius overflow for extreme finite values.
+
+The source tooltip has 8px content padding, including custom content: both the
+measured and legacy custom-content paths now paint callbacks inside that inset.
+An empty custom value string retains its source row, label and swatch and still
+invokes the value-color callback; a custom content renderer bypasses default
+rows and formatters. Pie default values use the shared raw round-trip formatter
+plus one decimal percentage, instead of rounding the value to three significant
+digits. Pie/Sankey swatches match the raster's datum-index palette when datum
+color is unset. The per-datum Pie palette is an existing CUI representation
+choice: the frozen Pie source defaults all slices to `chart_2` without a color
+accessor, so palette agreement does not imply that default-color parity.
+
+A source-shaped formatter callback receives datum, index, series and raw value:
+
+```c
+static size_t tooltip_value_with_unit(const cui_chart_datum *datum, size_t index,
+                                     size_t series, double value, char *buffer,
+                                     size_t capacity, void *user) {
+    (void)datum;
+    (void)index;
+    (void)series;
+    const char *unit = user; /* e.g. " USD" */
+    int written = snprintf(buffer, capacity, "%.2f%s", value, unit);
+    return written > 0 ? (size_t)written : 0;
+}
+```
+
+Set `options.tooltip_value = tooltip_value_with_unit` and
+`options.tooltip_user = " USD"` (include `<stdio.h>` for `snprintf`). This exact
+callback is compiled and exercised by `tests/unit/test_chart.c`; a separate
+capture callback verifies stationary Sankey revisions. It returns the number of bytes written; the chart
+bounds accepted text to its fixed formatter buffer. The same tests exercise
+empty value/label/color callbacks, measured custom-content padding, source Pie
+pad/donut boundaries, extreme equal-half Pie values, logical-scale selection,
+leave/disabled/re-enable behavior, precise default values and matching swatches.
+Remaining limits include bounded 48-byte value formatter storage, legacy custom
+content's fixed 150x64 fallback when no valid measure callback is supplied,
+source Background paint represented as pixels, and animation trajectory/portal
+z-order validation beyond these headless assertions. This is a focused tooltip
+and hit audit, not full Chart-family parity certification.

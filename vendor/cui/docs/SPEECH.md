@@ -1,0 +1,52 @@
+# Speech
+
+The portable provider lifecycle, PCM level meter, SVG SpeechButton and waveform are implemented and tested. An optional SDL input-host example now implements the capture boundary with bounded PCM delivery; real-device operation and system recognizers remain unverified or unimplemented. The following audit records the frozen source contract and the remaining target. Reference: commit `87d10ae5e1299d1be18670a37570c5402f952e34`, `crates/component/src/speech/{state,recognizer,level,button,waveform,microphone}.rs`.
+
+The portable layer must model Idle, Connecting, Recording and Stopping. A session owns capture and recognition separately: start recognition first, then capture; stop capture before requesting recognition finish; tear down capture before recognition. Failed starts report an error and preserve the previous transcript. Every asynchronous delivery carries a session generation, and stale deliveries must be ignored. Synchronous provider callbacks must defer their changes until start/push/finish returns. Started precedes provider results. Partial replaces the current hypothesis; Phrase appends literally to committed text and clears the hypothesis. Final keeps the transcript, Cancel clears it, and session teardown clears waveform history. Stop defaults to a three-second timeout and returns the current transcript when it expires. Repeated start/stop/cancel calls must preserve their source no-op semantics.
+
+Providers consume interleaved signed 16-bit PCM, default 16 kHz mono. Recognition availability is distinct from provider presence. An active session stays stoppable if the provider becomes unavailable. Custom capture and recognizer providers are required APIs; platform microphone capture, resampling and system recognizers remain part of the complete target, not implied by a portable fake provider test. Windows system recognition may use an online service; explicit system fallback control must be preserved. Unsupported platforms must report unsupported without fabricating transcripts.
+
+The input meter retains 256 levels, one per 80 ms of audio, carrying partial intervals across pushes. RMS maps -50 dBFS to 0 and 0 dBFS to 1; mapped values below .06 are silence. Attack is .85 and release .3. The waveform clock follows arrivals with phase gain .1 and pace gain .01, bounded to .04–.16 seconds per level, lag 1.75 levels and maximum lead 3. It must remain stable across late/bunched audio deliveries and finite caller timestamps.
+
+SpeechButton is a ghost icon button: microphone at rest, selected stop square while capturing, spinner while Stopping. It hides without providers unless show-unsupported is enabled, then remains disabled. Sizes and accessible labels follow the existing Button APIs; use customizable SVG icons, never text substitutes. SpeechWaveform defaults to width 96 and heights 12/16/20/24. Its capsule width is rounded height/8, clamped 2–4; gap is rounded width times 2.5. Newest levels enter at the trailing edge, silence is a dot, short histories leave the leading edge empty. Clip partial bars and preserve subpixel movement; reduced motion disables between-level scrolling. Capturing uses the primary color, otherwise muted foreground.
+
+Required tests include provider start failure cleanup, synchronous callbacks during every lifecycle call, stale generation rejection, partial/phrase ordering, stop timeout and late final suppression, cancellation and transcript lifetime, PCM batching equivalence, RMS/smoothing thresholds, waveform clock/geometry, unsupported/unavailable button semantics, physical pointer and keyboard toggles, four sizes and reduced motion. Real platform capture/recognition needs separate platform evidence; model tests cannot establish it.
+
+
+## Portable API and verified boundary
+
+Zero-initialize `cui_speech_state`, provide nonoverlapping caller-owned transcript, message and queue buffers in `cui_speech_workspace`, and call `cui_speech_init` with recognizer and input callbacks. Successful provider starts return non-null session tokens; `close` releases them. Failed starts may return a token for cleanup. All callbacks and reports run on one owner thread. Marshal background audio/recognition to that thread before reporting; these APIs are not a cross-thread queue. Keep state storage alive until every retained sink is retired.
+
+Provider sinks copy UTF-8 text and PCM into the bounded queue, including reports issued inside start/push/finish callbacks. `cui_speech_pump(state, now)` applies queued reports in order; call it when the host receives provider work and at the stopping deadline. One pump processes its initial queue length so a provider cannot recurse indefinitely. Queue overflow terminates an active session with Capacity; transcript overflow preserves the prior complete transcript. Malformed UTF-8 and stale-generation reports are rejected. Dispose invalidates sinks and preserves the generation counter across reinitialization. Completion listeners may start another session; disposal during pumping is ignored. Provider callbacks must only report through their sink, not invoke lifecycle functions.
+
+`cui_speech_button` uses existing themed SVG icon controls and four Button sizes. Localized start/stop/unavailable labels are accepted. `cui_speech_waveform` draws clipped capsule bars with floating-point positions, source size metrics, explicit dimensions/color and reduced-motion control. Both the per-waveform option and the Core host preference suppress continuous animation. Hosts own scheduling and call `cui_speech_pump`; rendering controls alone does not process asynchronous reports or implement a microphone. The provider-free button hides by default or renders disabled when requested.
+
+Tests cover lifecycle event order, PCM copying, synchronous callbacks, failed input cleanup, transcript preservation, stale delivery across both sessions and dispose/reinit, stop timeout, cancellation, reentrant completion/restart, bounded storage, UTF-8 rejection, meter batching/history/smoothing, waveform geometry/capacity, real SVG draw commands, four sizes, pointer activation, keyboard stopping despite provider unavailability, loading and unsupported semantics. Both standalone base and styled tests pass strict C11 and ASan/UBSan; the isolated worktree CTest run includes both new tests.
+
+Remaining parity work: real-device capture acceptance, platform recognizers and fallback policy, application event-loop/device-removal integration and automatic stop-deadline scheduling, button tooltip composition, inherited layout/style refinements, and live-device/browser verification. No fake transcript or deterministic provider test establishes any of these capabilities.
+
+
+## Optional SDL input host
+
+The independently buildable [SDL input-host example](../examples/speech_sdl_input/README.md) supplies the existing input-provider interface. Its private SDL callback converts to requested signed interleaved PCM16 and writes a fixed-capacity C11 SPSC ring. The UI thread polls copied samples into CUI and pumps the existing Speech state. Audio callbacks never call CUI. Ring overflow and wake failure terminate the session explicitly; the bound covers host PCM storage, not SDL or operating-system buffers.
+
+```sh
+cmake -S examples/speech_sdl_input -B /tmp/cui-speech-input-build -G Ninja
+cmake --build /tmp/cui-speech-input-build
+python scripts/test_local.py --build-dir /tmp/cui-speech-input-build
+```
+
+This requires CMake 3.20+, a C11 compiler, pkg-config and SDL3 development files (SDL >= 3.2). These commands run four offline Linux fixtures and never open a microphone. They test injected lifecycle/error handling, real unbound SDL conversion, intercepted SDL device operations and concurrent producer delivery. The example's CMake file records exact compiler and linker settings. It is an optional application-host example, not a new Core API or a built-in recognizer.
+
+For actual capture, the application supplies a recognizer and explicitly initializes SDL audio. See the example's integration section for start/poll/pump/shutdown ordering, timer and wake obligations, device-removal handling and OS permission limits. The host must outlive all provider callbacks; generation checks do not make reports safe after state storage is freed. macOS/Windows compilation, microphone hardware and recognition accuracy still require separate evidence.
+
+## Optional macOS recognizer host
+
+The [macOS recognizer host guide](../examples/speech_macos_recognizer/README.md)
+provides a bounded C11 mailbox/lifetime layer and a private Objective-C
+Speech/AVFoundation transport. The C11 provider uses the existing Speech API;
+no platform types enter public headers. Actual Apple Debug/Release compilation
+and injected transport tests pass. It requires explicit application consent,
+on-device service availability and a separate PCM input provider. Live consent,
+microphone capture and recognition acceptance remain unverified. Windows/Linux
+system recognizers and full Speech family parity remain unfinished.

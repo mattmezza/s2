@@ -1,0 +1,4 @@
+build*/
+*.ppm
+*.bmp
+__pycache__/
