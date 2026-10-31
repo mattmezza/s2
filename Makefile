@@ -15,7 +15,7 @@ options:
 config.h:
 	cp config.def.h $@
 
-${OBJ}: config.h config.mk | vendor/cui/.s2-revision
+${OBJ}: config.h config.mk vendor/cui/.s2-revision
 editor.o: assets/fonts/embedded.h assets/icons/masks.h assets/icons/rotate-cursor.h assets/icons/pan-cursors.h themes.h
 
 assets/fonts/embedded.h: scripts/embed_fonts.py assets/fonts/Geist-Variable.ttf assets/fonts/Geist-Italic-Variable.ttf assets/fonts/OFL.txt
@@ -57,6 +57,7 @@ dist: deps
 site:
 	npm --prefix site ci
 	npm --prefix site run build
+	npm --prefix site run check
 
 release:
 	python3 scripts/release.py "${name}"
