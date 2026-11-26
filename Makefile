@@ -1,6 +1,6 @@
 include config.mk
 
-SRC = main.c util.c image_io.c editor.c clipboard.c draw.c
+SRC = main.c util.c image_io.c editor.c clipboard.c draw.c settings.c
 OBJ = ${SRC:.c=.o}
 
 all: options s2
@@ -12,11 +12,14 @@ options:
 	@echo "LDFLAGS  = ${LDFLAGS}"
 	@echo "LDLIBS   = ${LDLIBS}"
 
-config.h:
-	cp config.def.h $@
+settings-defaults.h: config.ini
+	python3 -c 'import json, sys; print("\n".join(json.dumps(line, ensure_ascii=False) for line in sys.stdin))' < $< > $@.tmp
+	mv $@.tmp $@
 
-${OBJ}: config.h config.mk vendor/cui/.s2-revision
-editor.o: assets/fonts/embedded.h assets/icons/masks.h assets/icons/rotate-cursor.h assets/icons/pan-cursors.h themes.h
+${OBJ}: s2.h config.mk vendor/cui/.s2-revision
+main.o editor.o settings.o: settings.h
+settings.o: settings-defaults.h
+editor.o: assets/fonts/embedded.h assets/icons/masks.h assets/icons/rotate-cursor.h assets/icons/pan-cursors.h
 
 assets/fonts/embedded.h: scripts/embed_fonts.py assets/fonts/Geist-Variable.ttf assets/fonts/Geist-Italic-Variable.ttf assets/fonts/OFL.txt
 	python3 scripts/embed_fonts.py
@@ -37,8 +40,8 @@ s2: ${OBJ} vendor/cui/build/libcui.a
 .c.o:
 	${CC} -c ${CFLAGS} ${CPPFLAGS} $<
 
-test-text: assets/fonts/embedded.h assets/icons/rotate-cursor.h assets/icons/pan-cursors.h themes.h config.h vendor/cui/build/libcui.a assets/icons/masks.h tests/text.c editor.c draw.c image_io.c clipboard.c util.c
-	${CC} ${CFLAGS} ${CPPFLAGS} tests/text.c draw.c image_io.c clipboard.c util.c ${LDFLAGS} vendor/cui/build/libcui.a -o tests/text-test
+test-text: assets/fonts/embedded.h assets/icons/rotate-cursor.h assets/icons/pan-cursors.h settings.o vendor/cui/build/libcui.a assets/icons/masks.h tests/text.c editor.c draw.c image_io.c clipboard.c util.c
+	${CC} ${CFLAGS} ${CPPFLAGS} tests/text.c draw.c image_io.c clipboard.c util.c settings.o ${LDFLAGS} vendor/cui/build/libcui.a -o tests/text-test
 	./tests/text-test
 
 test-blur: tests/blur.c draw.c s2.h
@@ -49,7 +52,7 @@ clean:
 	rm -f s2 ${OBJ} tests/blur-test tests/text-test
 
 distclean: clean
-	rm -f config.h
+	rm -f settings-defaults.h settings-defaults.h.tmp
 
 dist: deps
 	python3 scripts/dist.py --version ${VERSION}

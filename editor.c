@@ -30,74 +30,9 @@
 
 #include "s2.h"
 
-#include "config.h"
-#include "themes.h"
+#include "settings.h"
 #include "assets/icons/rotate-cursor.h"
 #include "assets/icons/pan-cursors.h"
-
-#ifndef S2_DEFAULT_TEXT_WEIGHT
-#define S2_DEFAULT_TEXT_WEIGHT 500
-#endif
-
-#ifndef default_tool_index
-#define default_tool_index 1
-#endif
-
-#ifndef selection_bbox_color
-#define selection_bbox_color 0x00ffffu
-#endif
-
-#ifndef default_pixelate_block
-#define default_pixelate_block 8
-#endif
-
-#ifndef default_marker_height
-#define default_marker_height 24
-#endif
-
-#ifndef default_marker_strength
-#define default_marker_strength 40
-#endif
-
-#ifndef window_padding
-#define window_padding 16
-#endif
-
-#ifndef max_text_scale
-#define max_text_scale 16
-#endif
-
-#ifndef S2_DEFAULT_GRADIENT_FILL
-#define S2_DEFAULT_GRADIENT_FILL 1
-#endif
-#ifndef S2_DEFAULT_SHAPE_OUTLINE
-#define S2_DEFAULT_SHAPE_OUTLINE 1
-#endif
-
-/* Arrow end styles: open, filled, outline, diamond, dot, bar. */
-#ifndef S2_ARROW_EDGE_CYCLE
-#define S2_ARROW_EDGE_CYCLE {0,1,2,3,4,5}
-#endif
-#ifndef S2_DEFAULT_ARROW_EDGE_STYLE
-#define S2_DEFAULT_ARROW_EDGE_STYLE 0
-#endif
-static const int arrow_edge_cycle[]=S2_ARROW_EDGE_CYCLE;
-
-enum tool {
-	TOOL_SELECT = 0,
-	TOOL_ARROW,
-	TOOL_LINE,
-	TOOL_PEN,
-	TOOL_NUMBER,
-	TOOL_RECT,
-	TOOL_CIRCLE,
-	TOOL_TEXT,
-	TOOL_HIGHLIGHT,
-	TOOL_PIXELATE,
-	TOOL_BLUR,
-	TOOL_PICKER,
-	TOOL_MARKER,
-};
 
 enum action_type {
 	ACTION_ARROW = 0,
@@ -307,7 +242,7 @@ build_font_pattern(char *out, size_t outlen, int px)
 	if (!out || outlen == 0) {
 		return;
 	}
-	src = (font_name && *font_name) ? font_name : "monospace:size=16";
+	src = settings.font;
 	snprintf(base, sizeof(base), "%s", src);
 	size_pos = strstr(base, ":size=");
 	if (size_pos) {
@@ -358,7 +293,7 @@ build_font_css_family(char *out, size_t outlen)
 		return;
 	}
 	out[0] = '\0';
-	snprintf(base, sizeof(base), "%s", (font_name && *font_name) ? font_name : "sans");
+	snprintf(base, sizeof(base), "%s", settings.font);
 	size_pos = strstr(base, ":size=");
 	if (size_pos) {
 		*size_pos = '\0';
@@ -804,15 +739,15 @@ static void paint_canvas_cache(struct editor_state *ed,const struct image *src,i
  cairo_pattern_t *ramp=cairo_pattern_create_linear(ed->win_w,0,0,ed->win_h);
  double light[3],dark[3];
  for(int c=0;c<3;c++) {
-     double base=((themes[ed->theme].workspace>>(16-8*c))&255)/255.;
-     double tint=((themes[ed->theme].accent>>(16-8*c))&255)/255.;
+     double base=((settings.themes[ed->theme].workspace>>(16-8*c))&255)/255.;
+     double tint=((settings.themes[ed->theme].accent>>(16-8*c))&255)/255.;
      light[c]=base+(tint-base)*.15;dark[c]=base*.78;
  }
  cairo_pattern_add_color_stop_rgb(ramp,0,light[0],light[1],light[2]);
  cairo_pattern_add_color_stop_rgb(ramp,1,dark[0],dark[1],dark[2]);
  cairo_set_source(cr,ramp);cairo_paint(cr);cairo_pattern_destroy(ramp);
  cairo_surface_t *tile=cairo_image_surface_create(CAIRO_FORMAT_ARGB32,24,24);
- cairo_t *dot=cairo_create(tile);unsigned int color=themes[ed->theme].dots;
+ cairo_t *dot=cairo_create(tile);unsigned int color=settings.themes[ed->theme].dots;
  cairo_set_source_rgb(dot,((color>>16)&255)/255.,((color>>8)&255)/255.,(color&255)/255.);
  cairo_rectangle(dot,12,12,1,1);cairo_fill(dot);cairo_destroy(dot);
  cairo_pattern_t *pattern=cairo_pattern_create_for_surface(tile);cairo_pattern_set_extend(pattern,CAIRO_EXTEND_REPEAT);
@@ -897,8 +832,8 @@ recalc_layout(struct editor_state *ed)
 	if (ed->canvas_h < 1) ed->canvas_h = 1;
 	ed->canvas_x = (ed->win_w - ed->canvas_w) / 2;
 	ed->canvas_y = 106 + (toolbar_rows(ed)-1)*64 + (draw_h - ed->canvas_h) / 2;
-	if (ed->canvas_x < window_padding) ed->canvas_x = window_padding;
-	if (ed->canvas_y < window_padding) ed->canvas_y = window_padding;
+	if (ed->canvas_x < settings.window_padding) ed->canvas_x = settings.window_padding;
+	if (ed->canvas_y < settings.window_padding) ed->canvas_y = settings.window_padding;
  ed->canvas_x+=ed->view_x;ed->canvas_y+=ed->view_y;
 }
 
@@ -1214,7 +1149,7 @@ text_bg_padding_for_scale(int scale)
 	if (scale < 1) {
 		scale = 1;
 	}
-	return text_fill_padding * scale;
+	return settings.text_fill_padding * scale;
 }
 
 static int
@@ -1223,7 +1158,7 @@ text_bg_radius_for_scale(int scale)
 	if (scale < 1) {
 		scale = 1;
 	}
-	return text_fill_corner_radius * scale;
+	return settings.text_fill_corner_radius * scale;
 }
 
 static int action_text_padding(const struct action *a,int scale)
@@ -1365,7 +1300,7 @@ static void commit_text_input(struct editor_state *ed)
  int selected=-1;
  if(ed->text_len>0 || ed->text_edit_index>=0) {
      struct action a=ed->text_edit_index>=0?ed->text_edit_style:(struct action){0};
-     if(ed->text_edit_index<0){a.font_weight=S2_DEFAULT_TEXT_WEIGHT;a.no_gradient=!ed->gradient_mode;}
+     if(ed->text_edit_index<0){a.font_weight=settings.text_weight;a.no_gradient=!ed->gradient_mode;}
      a.type=ACTION_TEXT;a.x0=ed->text_x;a.y0=ed->text_y;
      a.p0=ed->fill_mode?-ed->text_scale:ed->text_scale;a.color=ed->color;a.text=ed->text_buf;
      if(ed->text_edit_index>=0 && (size_t)ed->text_edit_index<ed->actions.cursor) {
@@ -1682,7 +1617,7 @@ apply_action(struct editor_state *ed, struct image *img, const struct action *a)
 		draw_gradient_fill(img,fmin(a->x0,a->x1),fmin(a->y0,a->y1),abs(a->x1-a->x0)+1,abs(a->y1-a->y0)+1,0,0,a->color,fmax(.01,fmin(1.,a->p0/100.)),!a->no_gradient);
 		break;
 	case ACTION_MARKER:
-		draw_marker_stroke(img, a->pen_points, a->pen_len, a->p0, a->color, default_marker_strength);
+		draw_marker_stroke(img, a->pen_points, a->pen_len, a->p0, a->color, settings.marker_strength);
 		break;
 	case ACTION_PIXELATE:
 		draw_pixelate(img, a->x0, a->y0, a->x1, a->y1, a->p0);
@@ -2108,7 +2043,7 @@ static int size_selected_actions(struct editor_state *ed,int value,int relative)
      int index=ed->sel[i];if(index<0 || (size_t)index>=ed->actions.cursor)continue;
      struct action *a=&ed->actions.items[index];int old=action_dimension(a),step=1,low=1,high=128;
      if(a->type==ACTION_RECT || a->type==ACTION_CIRCLE)step=3;
-     if(a->type==ACTION_TEXT || a->type==ACTION_NUMBER){step=TEXT_SCALE_PX;low=TEXT_SCALE_PX;high=max_text_scale*TEXT_SCALE_PX;}
+     if(a->type==ACTION_TEXT || a->type==ACTION_NUMBER){step=TEXT_SCALE_PX;low=TEXT_SCALE_PX;high=settings.max_text_scale*TEXT_SCALE_PX;}
      if(a->type==ACTION_MARKER){step=8;low=4;high=400;}
      if(a->type==ACTION_BLUR){step=3;high=16;}
      if(a->type==ACTION_HIGHLIGHT){step=5;high=100;}
@@ -2175,7 +2110,7 @@ static int tool_size(const struct editor_state *ed)
 	case TOOL_MARKER:
 		return ed->marker_height;
 	default:
-		return thickness_presets[ed->thickness_idx];
+		return settings.stroke_widths[ed->thickness_idx];
 	}
 }
 static int dimension_is_percentage(const struct editor_state *ed)
@@ -2191,7 +2126,7 @@ static void adjust_tool_size(struct editor_state *ed, int delta)
 	case TOOL_TEXT:
 	case TOOL_NUMBER:
 		value = &ed->text_scale;
-		high = max_text_scale;
+		high = settings.max_text_scale;
 		break;
 	case TOOL_HIGHLIGHT:
 		value = &ed->highlight_strength;
@@ -2216,9 +2151,7 @@ static void adjust_tool_size(struct editor_state *ed, int delta)
 	default:
 		value = &ed->thickness_idx;
 		low = 0;
-		high =
-		    sizeof(thickness_presets) / sizeof(thickness_presets[0]) -
-		    1;
+		high = settings.stroke_count - 1;
 		break;
 	}
 	*value += delta * step;
@@ -2361,7 +2294,7 @@ static cui_size chrome_measure(void *user, cui_str text, float size)
 	pango_layout_get_pixel_size(chrome_layout(text, size), &w, &h);
 	return (cui_size){w, h};
 }
-static const struct ui_theme *chrome_theme = &themes[S2_DEFAULT_THEME];
+static const struct ui_theme *chrome_theme = &settings.themes[0];
 static cui_color theme_color(unsigned int rgb)
 {
  return (cui_color){rgb>>16 & 255,rgb>>8 & 255,rgb & 255,255};
@@ -2369,7 +2302,7 @@ static cui_color theme_color(unsigned int rgb)
 static void set_theme(struct editor_state *ed, int index)
 {
  if(index<0 || (size_t)index>=THEME_COUNT)return;
- ed->theme=index;ed->window_bg=themes[index].workspace;ed->raster_dirty=1;
+ ed->theme=index;ed->window_bg=settings.themes[index].workspace;ed->raster_dirty=1;
 }
 /* Remap legacy chrome roles; annotation colors and picker swatches stay literal. */
 static cui_color chrome_color(cui_color c)
@@ -2458,7 +2391,7 @@ static int size_options(const struct editor_state *ed, int values[8])
  const struct action *a=selected_action(ed);
  enum tool tool=ed->tool;
  if(a) {
-     if(a->type==ACTION_TEXT || a->type==ACTION_NUMBER){memcpy(values,text,sizeof text);return 8;}
+     if(a->type==ACTION_TEXT || a->type==ACTION_NUMBER)tool=TOOL_TEXT;
      if(a->type==ACTION_MARKER)tool=TOOL_MARKER;
      if(a->type==ACTION_HIGHLIGHT)tool=TOOL_HIGHLIGHT;
      if(a->type==ACTION_BLUR)tool=TOOL_BLUR;
@@ -2466,9 +2399,14 @@ static int size_options(const struct editor_state *ed, int values[8])
  }
  switch (tool) {
 	case TOOL_TEXT:
-	case TOOL_NUMBER:
-		source = text;
-		break;
+	case TOOL_NUMBER: {
+		int count = 0;
+		while (count < 8 && text[count] <= settings.max_text_scale * TEXT_SCALE_PX) {
+			values[count] = text[count];
+			count++;
+		}
+		return count;
+	}
 	case TOOL_HIGHLIGHT:
 		source = strength;
 		break;
@@ -2482,13 +2420,8 @@ static int size_options(const struct editor_state *ed, int values[8])
 		source = marker;
 		break;
 	default: {
-		size_t count =
-		    sizeof(thickness_presets) / sizeof(thickness_presets[0]);
-		if (count > 8)
-			count = 8;
-		for (size_t i = 0; i < count; i++)
-			values[i] = thickness_presets[i];
-		return (int)count;
+		memcpy(values, settings.stroke_widths, settings.stroke_count * sizeof(*values));
+		return settings.stroke_count;
 	}
 	}
 	memcpy(values, source, 8 * sizeof(int));
@@ -2503,8 +2436,8 @@ static void set_tool_size(struct editor_state *ed, int value)
 		ed->text_scale = value / TEXT_SCALE_PX;
 		if (ed->text_scale < 1)
 			ed->text_scale = 1;
-		if (ed->text_scale > max_text_scale)
-			ed->text_scale = max_text_scale;
+		if (ed->text_scale > settings.max_text_scale)
+			ed->text_scale = settings.max_text_scale;
 		break;
 	case TOOL_HIGHLIGHT:
 		ed->highlight_strength = value;
@@ -2519,10 +2452,8 @@ static void set_tool_size(struct editor_state *ed, int value)
 		ed->marker_height = value;
 		break;
 	default:
-		for (size_t i = 0; i < sizeof(thickness_presets) /
-					   sizeof(thickness_presets[0]);
-		     i++)
-			if (thickness_presets[i] == value)
+		for (int i = 0; i < settings.stroke_count; i++)
+			if (settings.stroke_widths[i] == value)
 				ed->thickness_idx = i;
 		break;
 	}
@@ -2611,13 +2542,13 @@ if(ed->popup==1 && selection_supports_fill(ed)) {
 if(ed->popup==3) {
      for(size_t i=0;i<THEME_COUNT;i++) {
          snprintf(id,sizeof id,"theme-row%zu",i);
-         snprintf(msg,sizeof msg,"%zu  %s%s",i+1,themes[i].name,(int)i==ed->theme?"  ✓":"");
+         snprintf(msg,sizeof msg,"%zu  %s%s",i+1,settings.themes[i].name,(int)i==ed->theme?"  ✓":"");
          ui_box(chrome,id,x+12,y+44+i*26,248,24,(int)i==ed->theme?active:panel,NULL,fg,12);
          snprintf(id,sizeof id,"theme-name%zu",i);
          ui_box(chrome,id,x+46,y+44+i*26,208,24,(int)i==ed->theme?active:panel,msg,fg,12);
          chrome_labels[chrome_label_count-1].left=1;
          snprintf(id,sizeof id,"theme-preview%zu",i);
-         ui_box(chrome,id,x+20,y+49+i*26,14,14,theme_color(themes[i].accent),NULL,fg,12);
+         ui_box(chrome,id,x+20,y+49+i*26,14,14,theme_color(settings.themes[i].accent),NULL,fg,12);
      }
      return;
  }
@@ -2792,7 +2723,7 @@ static void compose_help(struct editor_state *ed)
  ui_box(chrome,"help-edit-title",right,r.y+112,col,28,bg,"EDIT & FINISH",blue,12);
  chrome_labels[chrome_label_count-1].left=1;
  const char *names[]={"Select / Arrow","Line / Pencil","Rectangle / Circle","Text / Number","Highlight / Marker","Blur / Pixelate","Color / Theme","Fill / Outline","Adjust tool size"};
- const char *keys[]={"S / A","L / P","R / O","T / N","H / M","B / X","C / Alt C","f / ⇧F","[ / ]"};
+ const char *keys[]={"S / A","L / P","R / O","T / N","H / M","B / X",settings.theme_modifier==Mod4Mask?"C / Super C":"C / Alt C","f / ⇧F","[ / ]"};
  const char *edit[]={"Undo / Redo","Delete selection","Paste text","Copy & close","Copy, keep editing","Save timestamped","Finish text entry","Zoom / Fit","Cancel placement"};
  const char *ekeys[]={"⌃Z / ⇧⌃Z","Del","⌃V","⌃C","⌃Y","⌃S","Enter","+ − / =","X"};
  for(int i=0;i<9;i++){char id[24];snprintf(id,sizeof id,"help-tool-%d",i);help_row(id,left,r.y+154+i*32,col,names[i],keys[i]);snprintf(id,sizeof id,"help-edit-%d",i);help_row(id,right,r.y+154+i*32,col,edit[i],ekeys[i]);}
@@ -2822,7 +2753,7 @@ static void about_box(const struct editor_state *ed,const char *id,float x,float
 static void compose_about(struct editor_state *ed)
 {
  if(!ed->show_about)return;
- const struct ui_theme *theme=&themes[ed->theme];
+ const struct ui_theme *theme=&settings.themes[ed->theme];
  cui_color bg=theme_color(theme->panel),fg=theme_color(theme->text),accent=theme_color(theme->accent),selected=theme_color(theme->selected),clear={0,0,0,0};
  cui_rect r=about_rect(ed);
  ui_box(chrome,"about-scrim",0,0,ed->win_w,ed->win_h,(cui_color){0,0,0,180},NULL,fg,13);
@@ -2869,7 +2800,7 @@ static void draw_footer_symbol(cairo_t *cr,double x,double y,int info,cui_color 
 static void draw_about_decoration(cairo_t *cr,const struct editor_state *ed)
 {
  if(!ed->show_about)return;
- cui_rect r=about_rect(ed);double s=r.w/560.;unsigned int rgb=themes[ed->theme].accent;
+ cui_rect r=about_rect(ed);double s=r.w/560.;unsigned int rgb=settings.themes[ed->theme].accent;
  cairo_save(cr);cairo_translate(cr,r.x,r.y);cairo_scale(cr,s,s);
  cairo_set_source_rgba(cr,((rgb>>16)&255)/255.,((rgb>>8)&255)/255.,(rgb&255)/255.,.7);
  cairo_set_line_width(cr,3);cairo_set_line_cap(cr,CAIRO_LINE_CAP_ROUND);
@@ -2938,7 +2869,7 @@ static void paint_chrome_icons(cairo_t *cr,struct editor_state *ed,int left,floa
 
 static void draw_status(struct editor_state *ed)
 {
-	chrome_theme=&themes[ed->theme];
+	chrome_theme=&settings.themes[ed->theme];
  double now=monotonic_seconds();
  if(!ed->motion_only || now-ed->chrome_time>.1) {
      ed->chrome_cursor_x=ed->cursor_x;ed->chrome_cursor_y=ed->cursor_y;ed->chrome_time=now;
@@ -3035,7 +2966,7 @@ static void draw_status(struct editor_state *ed)
 	else if (ed->text_mode)
 		snprintf(msg, sizeof msg, "Text: %.28s  ·  Enter to place",
 			 ed->text_buf);
-	ui_box(chrome,"theme-button",fx+8,fy+6,fw<450?76:96,32,ed->chrome_hover==24?hover:panel,themes[ed->theme].name,fg,12);
+	ui_box(chrome,"theme-button",fx+8,fy+6,fw<450?76:96,32,ed->chrome_hover==24?hover:panel,settings.themes[ed->theme].name,fg,12);
  int stacked=footer_height(ed)>44;
  ui_box(chrome, "metadata", stacked?fx+8:fx+110, stacked?fy+44:fy,
         stacked?fw-16:fw-400, FOOTER_HEIGHT, panel, msg, fg, 13);
@@ -3245,9 +3176,9 @@ static int style_selected_arrow(struct editor_state *ed,KeySym sym)
  if(sym==XK_less)a->edges^=1;
  else if(sym==XK_greater)a->edges^=2;
  else if(sym==XK_e || sym==XK_E) {
-     size_t count=sizeof arrow_edge_cycle/sizeof arrow_edge_cycle[0],i;
-     for(i=0;i<count;i++)if(arrow_edge_cycle[i]==a->edge_style)break;
-     a->edge_style=arrow_edge_cycle[i<count?(i+count+(sym==XK_E?-1:1))%count:(sym==XK_E?count-1:0)];
+     int count=settings.arrow_edge_count,i;
+     for(i=0;i<count;i++)if(settings.arrow_edge_cycle[i]==a->edge_style)break;
+     a->edge_style=settings.arrow_edge_cycle[i<count?(i+count+(sym==XK_E?-1:1))%count:(sym==XK_E?count-1:0)];
  } else return 0;
  ed->dirty=ed->raster_dirty=1;return 1;
 }
@@ -3299,7 +3230,7 @@ static void draw_transform_preview(struct editor_state *ed)
  if(ed->transform_preview && ed->selected_idx>=0 && (size_t)ed->selected_idx<ed->actions.cursor)a=&ed->actions.items[ed->selected_idx];
  else if(ed->text_mode && ed->text_len>0) {
      if(ed->text_edit_index>=0)pending=ed->text_edit_style;
-     if(ed->text_edit_index<0){pending.font_weight=S2_DEFAULT_TEXT_WEIGHT;pending.no_gradient=!ed->gradient_mode;}
+     if(ed->text_edit_index<0){pending.font_weight=settings.text_weight;pending.no_gradient=!ed->gradient_mode;}
      pending.type=ACTION_TEXT;pending.x0=ed->text_x;pending.y0=ed->text_y;
      pending.p0=ed->fill_mode?-ed->text_scale:ed->text_scale;
      pending.color=ed->color;pending.text=ed->text_buf;a=&pending;
@@ -3377,7 +3308,7 @@ static void draw_text_caret(struct editor_state *ed)
 {
  if(!ed->text_mode)return;
  struct action a=ed->text_edit_index>=0?ed->text_edit_style:(struct action){0};
- if(ed->text_edit_index<0)a.font_weight=S2_DEFAULT_TEXT_WEIGHT;
+ if(ed->text_edit_index<0)a.font_weight=settings.text_weight;
  a.type=ACTION_TEXT;a.x0=ed->text_x;a.y0=ed->text_y;a.text=ed->text_buf;
  a.p0=ed->fill_mode?-ed->text_scale:ed->text_scale;
  cairo_surface_t *surface=cairo_xlib_surface_create(ed->dpy,ed->backbuf,DefaultVisual(ed->dpy,ed->screen),ed->win_w,ed->win_h);
@@ -3443,19 +3374,19 @@ static void render_frame(struct editor_state *ed)
 		switch (ed->tool) {
 		case TOOL_ARROW:
 			a.type = ACTION_ARROW;a.no_gradient=!ed->gradient_mode;
-			a.p0 = thickness_presets[ed->thickness_idx];
+			a.p0 = settings.stroke_widths[ed->thickness_idx];
 			apply_action(ed, &ed->preview, &a);
 			break;
 		case TOOL_LINE:
 			a.type = ACTION_LINE;
-			a.p0 = thickness_presets[ed->thickness_idx];
+			a.p0 = settings.stroke_widths[ed->thickness_idx];
 			apply_action(ed, &ed->preview, &a);
 			break;
 		case TOOL_RECT:
 			a.type = ACTION_RECT;a.no_gradient=!ed->gradient_mode;a.no_outline=!ed->outline_mode;
 			a.p0 = ed->fill_mode
 				   ? -1
-				   : thickness_presets[ed->thickness_idx];
+				   : settings.stroke_widths[ed->thickness_idx];
 			apply_action(ed, &ed->preview, &a);
 			draw_rect_guide(&ed->preview, ed->anchor_x,
 					ed->anchor_y, ed->cursor_x,
@@ -3463,7 +3394,7 @@ static void render_frame(struct editor_state *ed)
 			break;
 		case TOOL_CIRCLE:
 			a.type = ACTION_CIRCLE;a.no_gradient=!ed->gradient_mode;a.no_outline=!ed->outline_mode;
-			a.p0 = thickness_presets[ed->thickness_idx];
+			a.p0 = settings.stroke_widths[ed->thickness_idx];
 			apply_action(ed, &ed->preview, &a);
 			draw_rect_guide(&ed->preview, ed->anchor_x,
 					ed->anchor_y, ed->cursor_x,
@@ -3550,13 +3481,13 @@ static void render_frame(struct editor_state *ed)
 		unsigned int color =
 		    ed->pen_active ? (unsigned int)ed->pen_color : ed->color;
 		double alpha = ed->pen_active && ed->pen_is_marker
-				   ? default_marker_strength / 100.0
+				   ? settings.marker_strength / 100.0
 				   : (ed->tool == TOOL_HIGHLIGHT
 					  ? ed->highlight_strength / 100.0
 					  : 1.0);
 		int thickness = ed->pen_active
 				    ? ed->pen_thickness
-				    : thickness_presets[ed->thickness_idx];
+				    : settings.stroke_widths[ed->thickness_idx];
 		cairo_set_source_rgba(cr, ((color >> 16) & 255) / 255.,
 				      ((color >> 8) & 255) / 255.,
 				      (color & 255) / 255., alpha);
@@ -3568,7 +3499,7 @@ static void render_frame(struct editor_state *ed)
 		cairo_clip(cr);
 		if(ed->tool==TOOL_BLUR || ed->tool==TOOL_PIXELATE) {
             draw_effect_preview(ed,cr);
-            unsigned int guide=themes[ed->theme].accent;
+            unsigned int guide=settings.themes[ed->theme].accent;
             cairo_set_source_rgb(cr,((guide>>16)&255)/255.,((guide>>8)&255)/255.,(guide&255)/255.);
             cairo_set_line_width(cr,1.);
             cairo_rectangle(cr,fmin(x0,x1),fmin(y0,y1),fmax(1,fabs(x1-x0)),fmax(1,fabs(y1-y0)));
@@ -3609,7 +3540,7 @@ static void render_frame(struct editor_state *ed)
         } else {
             struct action pending={.type=ed->tool==TOOL_ARROW?ACTION_ARROW:ACTION_LINE,
                 .x0=ed->anchor_x,.y0=ed->anchor_y,.x1=ed->cursor_x,.y1=ed->cursor_y,
-                .p0=thickness,.edges=2,.edge_style=S2_DEFAULT_ARROW_EDGE_STYLE,.no_gradient=!ed->gradient_mode};
+                .p0=thickness,.edges=2,.edge_style=settings.arrow_edge_style,.no_gradient=!ed->gradient_mode};
             cairo_save(cr);cairo_translate(cr,ed->canvas_x,ed->canvas_y);cairo_scale(cr,ed->scale,ed->scale);
             connector_path(cr,&pending);cairo_restore(cr);
         }
@@ -3625,11 +3556,12 @@ static void render_frame(struct editor_state *ed)
 XCopyArea(ed->dpy,ed->backbuf,ed->win,ed->gc,dx,dy,dw,dh,dx,dy);
  if(partial)copy_chrome(ed,ed->backbuf,ed->win);
  if(ed->show_help || ed->show_about){XFlush(ed->dpy);return;}
+	unsigned long selection_color = settings.selection_bbox_color;
+	if (selection_color == SELECTION_THEME_ACCENT)
+		selection_color = settings.themes[ed->theme].accent;
 	{
 		int k;
-		XSetForeground(
-		    ed->dpy, ed->gc,
-		    (unsigned long)themes[ed->theme].accent);
+		XSetForeground(ed->dpy, ed->gc, selection_color);
 		for (k = 0; k < ed->sel_len; k++) {
 			struct action *sa;
 			int corners[8];
@@ -3650,9 +3582,9 @@ XCopyArea(ed->dpy,ed->backbuf,ed->win,ed->gc,dx,dy,dw,dh,dx,dy);
 			}
 			if(ed->sel_len==1 && action_is_resizable(sa->type)) {
                 for(int corner=0;corner<4;corner++) {
-                    XSetForeground(ed->dpy,ed->gc,themes[ed->theme].panel);
+                    XSetForeground(ed->dpy,ed->gc,settings.themes[ed->theme].panel);
                     XFillRectangle(ed->dpy,ed->win,ed->gc,corners[corner*2]-4,corners[corner*2+1]-4,8,8);
-                    XSetForeground(ed->dpy,ed->gc,themes[ed->theme].accent);
+                    XSetForeground(ed->dpy,ed->gc,selection_color);
                     XDrawRectangle(ed->dpy,ed->win,ed->gc,corners[corner*2]-4,corners[corner*2+1]-4,8,8);
                 }
             }
@@ -3683,9 +3615,9 @@ XCopyArea(ed->dpy,ed->backbuf,ed->win,ed->gc,dx,dy,dw,dh,dx,dy);
         int hx,hy;
         if(ed->tool==TOOL_SELECT && curve_handle_position(ed,&hx,&hy)) {
             XPoint diamond[]={{hx,hy-6},{hx+6,hy},{hx,hy+6},{hx-6,hy},{hx,hy-6}};
-            XSetForeground(ed->dpy,ed->gc,themes[ed->theme].panel);
+            XSetForeground(ed->dpy,ed->gc,settings.themes[ed->theme].panel);
             XFillPolygon(ed->dpy,ed->win,ed->gc,diamond,4,Convex,CoordModeOrigin);
-            XSetForeground(ed->dpy,ed->gc,themes[ed->theme].accent);
+            XSetForeground(ed->dpy,ed->gc,selection_color);
             XDrawLines(ed->dpy,ed->win,ed->gc,diamond,5,CoordModeOrigin);
         }
     }
@@ -3698,7 +3630,7 @@ XCopyArea(ed->dpy,ed->backbuf,ed->win,ed->gc,dx,dy,dw,dh,dx,dy);
 		int miny = y0 < y1 ? y0 : y1;
 		unsigned int w = (unsigned int)(x0 < x1 ? (x1 - x0) : (x0 - x1));
 		unsigned int h = (unsigned int)(y0 < y1 ? (y1 - y0) : (y0 - y1));
-		XSetForeground(ed->dpy, ed->gc, (unsigned long)themes[ed->theme].accent);
+		XSetForeground(ed->dpy, ed->gc, selection_color);
 		XDrawRectangle(ed->dpy, ed->win, ed->gc, minx, miny, w, h);
 	}
 	if (ed->anchor_active && tool_uses_anchor(ed->tool) && !vector_preview) {
@@ -3710,7 +3642,7 @@ XCopyArea(ed->dpy,ed->backbuf,ed->win,ed->gc,dx,dy,dw,dh,dx,dy);
 		int miny = y0 < y1 ? y0 : y1;
 		unsigned int w = (unsigned int)(x0 < x1 ? (x1 - x0) : (x0 - x1));
 		unsigned int h = (unsigned int)(y0 < y1 ? (y1 - y0) : (y0 - y1));
-		XSetForeground(ed->dpy, ed->gc, (unsigned long)themes[ed->theme].accent);
+		XSetForeground(ed->dpy, ed->gc, (unsigned long)settings.themes[ed->theme].accent);
 		XDrawRectangle(ed->dpy, ed->win, ed->gc, minx, miny, w, h);
 		if (ed->tool == TOOL_ARROW || ed->tool == TOOL_LINE) {
 			XDrawLine(ed->dpy, ed->win, ed->gc, x0, y0, x1, y1);
@@ -3827,8 +3759,8 @@ static int
 build_timestamp_path(const struct app_config *cfg, char *out, size_t outlen)
 {
 	char name[64];
-	char dirbuf[PATH_MAX];
-	const char *dir;
+	const char *dir = cfg && cfg->save_dir_override ? cfg->save_dir_override : settings.save_directory;
+	const char *home = "";
 
 	if (!out || outlen < 64) {
 		return -1;
@@ -3836,26 +3768,14 @@ build_timestamp_path(const struct app_config *cfg, char *out, size_t outlen)
 	if (build_timestamp_name(name, sizeof(name)) != 0) {
 		return -1;
 	}
-	dir = (cfg && cfg->save_dir_override && cfg->save_dir_override[0] == '/') ? cfg->save_dir_override :
-	                                                                           default_save_directory;
-	if (!dir || !*dir) {
-		dir = ".";
-	}
 	if (dir[0] == '~' && (dir[1] == '\0' || dir[1] == '/')) {
-		const char *home = getenv("HOME");
-		if (home && *home) {
-			if (dir[1] == '\0') {
-				snprintf(dirbuf, sizeof(dirbuf), "%s", home);
-			} else {
-				snprintf(dirbuf, sizeof(dirbuf), "%s/%s", home, dir + 2);
-			}
-			dir = dirbuf;
-		}
+		home = getenv("HOME");
+		if (!home || !*home)
+			return -1;
+		dir++;
 	}
-	if (snprintf(out, outlen, "%s/%s", dir, name) >= (int)outlen) {
-		return -1;
-	}
-	return 0;
+	int length = snprintf(out, outlen, "%s%s/%s", home, dir, name);
+	return length < 0 || (size_t)length >= outlen ? -1 : 0;
 }
 
 /* Exclusively create timestamped captures: never truncate an earlier save. */
@@ -3907,27 +3827,6 @@ print_saved_abs_path(const char *path)
 }
 
 
-static enum tool
-tool_from_config_value(int value)
-{
-	switch (value) {
-	case 0: return TOOL_SELECT;
-	case 1: return TOOL_ARROW;
-	case 2: return TOOL_LINE;
-	case 3: return TOOL_PEN;
-	case 4: return TOOL_NUMBER;
-	case 5: return TOOL_RECT;
-	case 6: return TOOL_CIRCLE;
-	case 7: return TOOL_TEXT;
-	case 8: return TOOL_HIGHLIGHT;
-	case 9: return TOOL_MARKER;
-	case 10: return TOOL_PIXELATE;
-	case 11: return TOOL_BLUR;
-	case 12: return TOOL_PICKER;
-	default: return TOOL_ARROW;
-	}
-}
-
 static int
 add_simple_action(struct editor_state *ed, enum action_type type, int x0, int y0, int x1, int y1, int p0)
 {
@@ -3935,8 +3834,8 @@ add_simple_action(struct editor_state *ed, enum action_type type, int x0, int y0
 
 	memset(&a, 0, sizeof(a));
 	a.type = type;a.no_gradient=!ed->gradient_mode;a.no_outline=!ed->outline_mode;
- if(type==ACTION_RECT || type==ACTION_CIRCLE)a.outline_thickness=thickness_presets[ed->thickness_idx];
- if(type==ACTION_ARROW) {a.edges=2;a.edge_style=S2_DEFAULT_ARROW_EDGE_STYLE;}
+ if(type==ACTION_RECT || type==ACTION_CIRCLE)a.outline_thickness=settings.stroke_widths[ed->thickness_idx];
+ if(type==ACTION_ARROW) {a.edges=2;a.edge_style=settings.arrow_edge_style;}
 	a.x0 = x0;
 	a.y0 = y0;
 	a.x1 = x1;
@@ -4333,7 +4232,7 @@ commit_current_tool(struct editor_state *ed)
 		                         ed->anchor_y,
 		                         ed->cursor_x,
 		                         ed->cursor_y,
-		                         thickness_presets[ed->thickness_idx]);
+		                         settings.stroke_widths[ed->thickness_idx]);
 	case TOOL_LINE:
 		if (!ed->anchor_active) {
 			ed->anchor_active = 1;
@@ -4348,7 +4247,7 @@ commit_current_tool(struct editor_state *ed)
 		                         ed->anchor_y,
 		                         ed->cursor_x,
 		                         ed->cursor_y,
-		                         thickness_presets[ed->thickness_idx]);
+		                         settings.stroke_widths[ed->thickness_idx]);
 	case TOOL_PEN:
 		return 0;
 	case TOOL_NUMBER:
@@ -4388,7 +4287,7 @@ commit_current_tool(struct editor_state *ed)
 		                         ed->anchor_y,
 		                         ed->cursor_x,
 		                         ed->cursor_y,
-		                         ed->fill_mode ? -1 : thickness_presets[ed->thickness_idx]);
+		                         ed->fill_mode ? -1 : settings.stroke_widths[ed->thickness_idx]);
 	case TOOL_CIRCLE:
 		if (!ed->anchor_active) {
 			ed->anchor_active = 1;
@@ -4403,7 +4302,7 @@ commit_current_tool(struct editor_state *ed)
 		                         ed->anchor_y,
 		                         ed->cursor_x,
 		                         ed->cursor_y,
-		                         ed->fill_mode ? -1 : thickness_presets[ed->thickness_idx]);
+		                         ed->fill_mode ? -1 : settings.stroke_widths[ed->thickness_idx]);
 	case TOOL_PIXELATE:
 		if (!ed->anchor_active) {
 			ed->anchor_active = 1;
@@ -4656,7 +4555,7 @@ static void set_fill_mode(struct editor_state *ed,int fill)
      else if(fill) {
          if(a->p0>0)a->outline_thickness=a->p0;
          a->p0=-1;
-     } else a->p0=a->outline_thickness>0?a->outline_thickness:thickness_presets[ed->thickness_idx];
+     } else a->p0=a->outline_thickness>0?a->outline_thickness:settings.stroke_widths[ed->thickness_idx];
      ed->dirty=1;
  }
  ed->raster_dirty=1;
@@ -4703,9 +4602,9 @@ static int style_selected_text(struct editor_state *ed,KeySym sym)
 
 static int color_selected_palette(struct editor_state *ed,KeySym number,int background)
 {
- if(number<XK_1 || number>XK_9 || (size_t)(number-XK_1)>=sizeof palette/sizeof *palette)return 0;
+ if(number<XK_1 || number>XK_9 || number-XK_1 >= (KeySym)settings.palette_count)return 0;
  if(!selected_action(ed))return 0;
- apply_selected_color(ed,palette[number-XK_1],background);return 1;
+ apply_selected_color(ed,settings.palette[number-XK_1],background);return 1;
 }
 
 static int edit_selected_text(struct editor_state *ed)
@@ -4769,7 +4668,7 @@ handle_keypress(struct editor_state *ed, XKeyEvent *kev)
 		return handle_text_mode(ed, kev);
 	}
 
- if((kev->state&S2_THEME_MODIFIER)==S2_THEME_MODIFIER) {
+ if((kev->state&settings.theme_modifier)==settings.theme_modifier) {
      if(sym>=XK_1 && sym<=XK_9) {set_theme(ed,sym-XK_1);return 1;}
      if(sym==XK_c || sym==XK_C) {ed->popup=ed->popup==3?0:3;return 1;}
  }
@@ -4957,9 +4856,9 @@ if(!(kev->state&(ControlMask|Mod1Mask|Mod4Mask))) {
 
 	if (sym >= XK_1 && sym <= XK_9) {
 		size_t idx = (size_t)(sym - XK_1);
-		size_t n = sizeof(palette) / sizeof(palette[0]);
+		size_t n = settings.palette_count;
 		if (idx < n) {
-			ed->color = palette[idx];
+			ed->color = settings.palette[idx];
 		}
 		return 1;
 	}
@@ -5040,25 +4939,22 @@ static int x11_setup(struct editor_state *ed)
 	depth = DefaultDepth(ed->dpy, ed->screen);
 	vis = DefaultVisual(ed->dpy, ed->screen);
 	ed->cmap = DefaultColormap(ed->dpy, ed->screen);
-	/* The annotation workspace intentionally uses a stable dark palette. */
-	{
-		set_theme(ed, S2_DEFAULT_THEME);
-		ed->status_bg = 0x000000ul;
-		ed->status_fg = 0xfffffful;
-	}
+	set_theme(ed, settings.theme_default - 1);
+	ed->status_bg = 0x000000ul;
+	ed->status_fg = 0xfffffful;
 
 	{
 		XSizeHints hints = {0};
 		int min_w = 400;
 		int min_h = 320;
 		int max_w =
-		    DisplayWidth(ed->dpy, ed->screen) - window_padding * 2;
+		    DisplayWidth(ed->dpy, ed->screen) - settings.window_padding * 2;
 		int max_h =
-		    DisplayHeight(ed->dpy, ed->screen) - window_padding * 2;
+		    DisplayHeight(ed->dpy, ed->screen) - settings.window_padding * 2;
 		int pref_w = ed->img->width + 120;
         if(pref_w<720)pref_w=720;
 		int pref_h = ed->img->height + ed->status_h + ed->status_pad +
-			     window_padding * 2;
+			     settings.window_padding * 2;
 		int win_w;
 		int win_h;
         if(pref_h<700)pref_h=700;
@@ -5099,10 +4995,8 @@ static int x11_setup(struct editor_state *ed)
 		hints.min_height = min_h;
 		XSetWMNormalHints(ed->dpy, ed->win, &hints);
 	}
-	set_wm_class(ed->dpy,
-	             ed->win,
-	             (ed->cfg && ed->cfg->window_class && *ed->cfg->window_class) ? ed->cfg->window_class :
-	                                                                                 "s2");
+	const char *window_class = ed->cfg ? ed->cfg->window_class : NULL;
+	set_wm_class(ed->dpy, ed->win, window_class && *window_class ? window_class : settings.window_class);
 	set_wm_window_type(ed->dpy, ed->win, ed->cfg && ed->cfg->normal_window);
     if(ed->cfg && !ed->cfg->normal_window) {
         Atom state=XInternAtom(ed->dpy,"_NET_WM_STATE",False);
@@ -5376,7 +5270,7 @@ static void resize_selected_to_pointer(struct editor_state *ed, int sx, int sy, 
  if(original.type==ACTION_TEXT) {
      int size=abs(original.p0),next=(int)lround(size*scale_x);
      if(next<1)next=1;
-     if(next>max_text_scale)next=max_text_scale;
+     if(next>settings.max_text_scale)next=settings.max_text_scale;
      scale_x=scale_y=(double)next/(size?size:1);
  }
  double ncx=fx+(cx-fx)*scale_x,ncy=fy+(cy-fy)*scale_y;
@@ -5428,7 +5322,7 @@ static void handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 		switch (hit) {
  case 25:ed->show_about=1;ed->show_help=ed->popup=0;ed->about_focus=2;break;
  case 24:ed->popup=ed->popup==3?0:3;break;
- case 13: {int menu=(bev->state&S2_THEME_MODIFIER)?3:1;
+ case 13: {int menu=(bev->state&settings.theme_modifier)?3:1;
      int fill=selection_supports_fill(ed) && (bev->state&ShiftMask);
      if(menu==1 && ed->popup==1 && ed->color_target_fill!=fill){ed->color_target_fill=fill;break;}
      if(menu==1)ed->color_target_fill=fill;
@@ -5540,7 +5434,7 @@ static void handle_button_press(struct editor_state *ed, XButtonEvent *bev)
 		ed->pen_is_marker = (ed->tool == TOOL_MARKER);
 		ed->pen_color = (int)ed->color;
 		ed->pen_thickness = ed->pen_is_marker ? (ed->marker_height > 0 ? ed->marker_height : 1)
-		                                       : thickness_presets[ed->thickness_idx];
+		                                       : settings.stroke_widths[ed->thickness_idx];
 		ed->pen_len = 0;
 		if (append_pen_point(ed, ed->cursor_x, ed->cursor_y) != 0) {
 			fprintf(stderr, "s2: out of memory for pen tool\n");
@@ -5748,7 +5642,6 @@ int editor_run(const struct app_config *cfg, struct image *img)
 {
 	struct editor_state ed;
 	XEvent ev;
-	(void)default_window_class;
 
 	if (!cfg || !img || !img->pixels || img->width <= 0 ||
 	    img->height <= 0) {
@@ -5760,56 +5653,17 @@ int editor_run(const struct app_config *cfg, struct image *img)
 	ed.profile = getenv("S2_PROFILE") != NULL;
 	ed.cfg = cfg;
 	ed.img = img;
-	ed.tool = tool_from_config_value(default_tool_index);
-	{
-		size_t pn = sizeof(palette) / sizeof(palette[0]);
-		size_t tn =
-		    sizeof(thickness_presets) / sizeof(thickness_presets[0]);
-		int pidx = default_palette_index;
-		int tidx = default_thickness_index;
-		if (pidx < 0 || (size_t)pidx >= pn) {
-			pidx = 0;
-		}
-		if (tidx < 0 || (size_t)tidx >= tn) {
-			tidx = 0;
-		}
-		ed.color = palette[pidx];
-		ed.thickness_idx = tidx;
-	}
-	ed.text_scale = (default_text_scale > 0) ? default_text_scale : 1;
-	if (ed.text_scale > max_text_scale) {
-		ed.text_scale = max_text_scale;
-	}
-	ed.pixelate_block = default_pixelate_block;
-	if (ed.pixelate_block < 2) {
-		ed.pixelate_block = 2;
-	}
-	if (ed.pixelate_block > 64) {
-		ed.pixelate_block = 64;
-	}
-	ed.blur_radius = default_blur_radius;
-	if (ed.blur_radius < 1) {
-		ed.blur_radius = 1;
-	}
-	if (ed.blur_radius > 16) {
-		ed.blur_radius = 16;
-	}
-	ed.highlight_strength = default_highlight_strength;
-	if (ed.highlight_strength < 1) {
-		ed.highlight_strength = 1;
-	}
-	if (ed.highlight_strength > 100) {
-		ed.highlight_strength = 100;
-	}
-	ed.marker_height = default_marker_height;
-	if (ed.marker_height < 4) {
-		ed.marker_height = 4;
-	}
-	if (ed.marker_height > 400) {
-		ed.marker_height = 400;
-	}
-	ed.fill_mode = default_fill_mode ? 1 : 0;
- ed.gradient_mode=!!S2_DEFAULT_GRADIENT_FILL;ed.outline_mode=!!S2_DEFAULT_SHAPE_OUTLINE;
+	ed.tool = settings.tool;
+	ed.color = settings.palette[MIN(settings.palette_default, settings.palette_count) - 1];
+	ed.thickness_idx = MIN(settings.stroke_default, settings.stroke_count) - 1;
+	ed.text_scale = MIN(settings.text_scale, settings.max_text_scale);
+	ed.pixelate_block = settings.pixelate_block;
+	ed.blur_radius = settings.blur_radius;
+	ed.highlight_strength = settings.highlight_strength;
+	ed.marker_height = settings.marker_height;
+	ed.fill_mode = settings.fill;
+	ed.gradient_mode = settings.gradient_fill;
+	ed.outline_mode = settings.shape_outline;
 	ed.status_h = 28;
 	ed.status_pad = 10;
 	ed.scale = 1.0f;

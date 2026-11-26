@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='s2-about-') as tmp:
     app=None
     try:
         while not display.read_text().strip():time.sleep(.03)
-        env=dict(os.environ,DISPLAY=':'+display.read_text().strip(),PATH=tmp+os.pathsep+os.environ['PATH'],S2_TEST_REPO_LOG=str(link_log))
+        env=dict(os.environ, XDG_CONFIG_HOME=tmp, DISPLAY=':'+display.read_text().strip(),PATH=tmp+os.pathsep+os.environ['PATH'],S2_TEST_REPO_LOG=str(link_log))
         def x(*args):return subprocess.check_output(['xdotool',*args],env=env).decode().strip()
         def launch(output):
             global app

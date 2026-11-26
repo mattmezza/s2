@@ -50,7 +50,7 @@ def render(binary):
         app=None
         try:
             while not display.read_text().strip():time.sleep(.03)
-            env=dict(os.environ,DISPLAY=':'+display.read_text().strip())
+            env=dict(os.environ, XDG_CONFIG_HOME=tmp, DISPLAY=':'+display.read_text().strip())
             def x(*args):return subprocess.check_output(['xdotool',*args],env=env).decode().strip()
             app=subprocess.Popen([str(binary),'-i',str(fixture)],env=env)
             for _ in range(100):

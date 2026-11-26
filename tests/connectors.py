@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='s2-connectors-') as tmp:
     app=None
     try:
         while not display.read_text().strip():time.sleep(.03)
-        env=dict(os.environ,DISPLAY=':'+display.read_text().strip())
+        env=dict(os.environ, XDG_CONFIG_HOME=tmp, DISPLAY=':'+display.read_text().strip())
         def x(*args):return subprocess.check_output(['xdotool',*args],env=env).decode().strip()
         def launch(name):
             global app

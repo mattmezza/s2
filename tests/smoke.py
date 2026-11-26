@@ -24,7 +24,7 @@ def run():
                 if display_file.read_text().strip():
                     break
                 time.sleep(.05)
-            env = dict(os.environ, DISPLAY=':' + display_file.read_text().strip())
+            env = dict(os.environ, XDG_CONFIG_HOME=tmp, DISPLAY=':' + display_file.read_text().strip())
             def xdo(*args):
                 return subprocess.check_output(['xdotool', *args], env=env).decode().strip()
             def launch(*args, input_path=ROOT / 'cover-og.png'):

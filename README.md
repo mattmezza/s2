@@ -36,18 +36,18 @@ curl -fsSL https://raw.githubusercontent.com/mattmezza/s2/main/install.sh | sh -
 curl -fsSL https://raw.githubusercontent.com/mattmezza/s2/main/install.sh | sh -s -- uninstall
 ```
 
-The script manages `$HOME/.local/bin/s2`. Put `$HOME/.local/bin` on your PATH before `/usr/local/bin` if you have an older system installation. Set `S2_INSTALL_DIR` on the `sh` side of the pipe to use another absolute directory. Pass `install v0.1.1` after `sh -s --` to pin a version.
+The script manages `$HOME/.local/bin/s2`. Put `$HOME/.local/bin` on your PATH before `/usr/local/bin` if you have an older system installation. Set `S2_INSTALL_DIR` on the `sh` side of the pipe to use another absolute directory. Pass `install v0.2.0` after `sh -s --` to pin a version.
 
 Running s2 requires X11. Install `xclip` for clipboard operations, `xdg-open` to open the repository link, and a capture tool such as `maim` if you want to select an area of the screen.
 
 ## Build and install
 
-Requires a C11 compiler, Make, CMake, Python 3 (with HTTPS support), pkg-config, X11/Xft/FreeType, Fontconfig, libpng, Pango, Cairo, and HarfBuzz. Clipboard operations use `xclip`; repository links use `xdg-open`. `maim` and `slop` are optional capture tools.
+Requires a C11 compiler, Make, CMake, Python 3 (with HTTPS support), pkg-config, X11/Xft/FreeType, Fontconfig, libpng, GLib, Pango, Cairo, and HarfBuzz. Clipboard operations use `xclip`; repository links use `xdg-open`. `maim` and `slop` are optional capture tools.
 
 On Arch Linux:
 
 ```sh
-sudo pacman -S base-devel cmake python pkgconf libx11 libxft freetype2 fontconfig libpng pango cairo harfbuzz xclip xdg-utils
+sudo pacman -S base-devel cmake python pkgconf libx11 libxft freetype2 fontconfig libpng glib2 pango cairo harfbuzz xclip xdg-utils
 # Optional capture tools:
 sudo pacman -S maim slop
 make
@@ -118,9 +118,20 @@ Text styling keys take precedence over tool shortcuts while text is selected; ch
 
 ## Configure
 
-`make` creates `config.h` from [`config.def.h`](config.def.h) only when it is missing. Edit `config.h`, then rebuild. It is intentionally ignored by Git. Keep a backup before replacing it with refreshed upstream defaults.
+s2 reads `$XDG_CONFIG_HOME/s2/config.ini` at startup. If `XDG_CONFIG_HOME` is unset, empty, or relative, it uses `~/.config/s2/config.ini`. Every setting is optional. The executable embeds the commented defaults from [`config.ini`](config.ini).
 
-Configure palette, save directory, tool dimensions, font, text styling, and theme mappings. `S2_DEFAULT_GRADIENT_FILL` and `S2_DEFAULT_SHAPE_OUTLINE` control initial appearance (both enabled). `S2_ARROW_EDGE_CYCLE` controls end-style order and `S2_DEFAULT_ARROW_EDGE_STYLE` its initial value. Theme presets and modifier are defined with `S2_THEME_PRESETS` and `S2_THEME_MODIFIER`.
+To create an editable copy from your installed version, run:
+
+```sh
+case ${XDG_CONFIG_HOME:-} in
+  /*) config_dir=$XDG_CONFIG_HOME/s2 ;;
+  *)  config_dir=$HOME/.config/s2 ;;
+esac
+mkdir -p "$config_dir"
+(set -C; s2 --print-config > "$config_dir/config.ini")
+```
+
+Reopen s2 to apply changes. Invalid values produce a warning and use their built-in defaults. `-C` and `-D` override the configured X11 class and save directory. An explicit `-o` saves to that path. If you customized `config.h` in an earlier version, copy those settings into the matching INI sections.
 
 See [`docs/CONTROLS.md`](docs/CONTROLS.md), `man s2`, and `s2 -h` for details.
 
@@ -149,7 +160,7 @@ Regenerate the documentation images with `python3 scripts/render_screenshots.py`
 To publish a release, update `VERSION` in `config.mk` and add the matching `vX.Y.Z` heading to `CHANGELOG.md`, then commit all changes and run:
 
 ```sh
-make release name=v0.1.1
+make release name=v0.2.0
 ```
 
 This runs the native regression checks and website build, packages tracked source plus the pinned CUI dependency into an offline source archive, writes SHA-256 checksums, creates an annotated tag, pushes the branch and tag, and publishes a GitHub release. It requires GitHub CLI authentication and the test dependencies listed above. `make dist` creates the source archive from the current commit without publishing.

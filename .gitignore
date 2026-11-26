@@ -8,8 +8,10 @@
 /core
 /core.*
 
-# generated local config
+# legacy local config and generated embedded defaults
 /config.h
+/settings-defaults.h
+/settings-defaults.h.tmp
 
 # local notes/spec drafts
 SPEC.md

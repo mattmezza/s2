@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.0 — 2026-11-26
+
+- Load editor settings from `$XDG_CONFIG_HOME/s2/config.ini` (`~/.config/s2/config.ini` by default) on startup. Move customizations from `config.h` to the matching INI sections.
+- Embed the documented defaults in every executable and expose them with `s2 --print-config`.
+
 ## v0.1.1 — 2026-11-26
 
 - Publish fully static Linux executables for x86_64 and AArch64, with SHA-256 checksums and relink archives.

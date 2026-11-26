@@ -1,4 +1,4 @@
-.TH S2 1 "October 2026" "s2 0.1" "User Commands"
+.TH S2 1 "November 2026" "s2 0.2.0" "User Commands"
 .SH NAME
 s2 \- Super Screenshot, a native X11 screenshot annotation editor
 .SH SYNOPSIS
@@ -10,6 +10,8 @@ s2 \- Super Screenshot, a native X11 screenshot annotation editor
 .RB [ \-D " absdir" ]
 .RB [ \-\-modal ]
 .RB [ \-c ]
+.br
+.B s2 \-\-print\-config
 .SH DESCRIPTION
 s2 edits an existing capture with arrows, lines, shapes, text, numbered pins,
 freehand strokes, highlights, blur and pixelation. Its view and floating controls
@@ -41,6 +43,9 @@ Copy the result when finishing successfully. Cancellation does not copy.
 .TP
 .B \-\-licenses
 Print the embedded font license and exit.
+.TP
+.B \-\-print\-config
+Print the commented default config.ini and exit.
 .TP
 .B \-h
 Show usage.
@@ -113,14 +118,22 @@ Alt+1 through Alt+9 select presets. Theme mappings/modifier are configurable.
 ? opens keyboard help. The adjacent info button opens About with a clickable
 repository link, license, author and version. Tab/Enter navigate About.
 .SH CONFIGURATION
-Edit config.h and rebuild. It is copied from config.def.h only when missing.
-Settings include palette, tool dimensions, save directory, typography,
-S2_DEFAULT_GRADIENT_FILL, S2_DEFAULT_SHAPE_OUTLINE, S2_ARROW_EDGE_CYCLE,
-S2_DEFAULT_ARROW_EDGE_STYLE, S2_THEME_PRESETS and S2_THEME_MODIFIER.
+s2 reads
+.I $XDG_CONFIG_HOME/s2/config.ini
+at startup, defaulting to
+.IR ~/.config/s2/config.ini .
+Run
+.B s2 \-\-print\-config
+to print the complete commented template. Omitted or invalid settings use
+the built-in defaults. Reopen s2 after editing the file.
+.B \-C
+and
+.B \-D
+override the configured class and save directory.
 .SH EXIT STATUS
 0 indicates successful save, copy or cancellation. Errors return nonzero.
 .SH DEPENDENCIES
-X11, Cairo, Pango, HarfBuzz, Fontconfig, FreeType/Xft and libpng.
+X11, Cairo, Pango, HarfBuzz, GLib, Fontconfig, FreeType/Xft and libpng.
 xclip handles clipboard operations; xdg-open opens repository links.
 .SH EXAMPLES
 .nf

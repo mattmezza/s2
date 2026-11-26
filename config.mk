@@ -1,4 +1,4 @@
-VERSION = 0.1.1
+VERSION = 0.2.0
 
 PREFIX = /usr/local
 MANPREFIX = ${PREFIX}/share/man
@@ -7,9 +7,9 @@ X11LIB = /usr/lib
 
 INCS = -I. -Ivendor/cui/include -I${X11INC}
 INCS += $(shell pkg-config --cflags xft)
-INCS += $(shell pkg-config --cflags pangocairo fontconfig)
+INCS += $(shell pkg-config --cflags pangocairo fontconfig glib-2.0)
 LIBS = -L${X11LIB} -lX11 -lpng -lm $(shell pkg-config --libs xft)
-LIBS += $(shell pkg-config --libs pangocairo fontconfig)
+LIBS += $(shell pkg-config --libs pangocairo fontconfig glib-2.0)
 
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700 -DVERSION=\"${VERSION}\"
 CFLAGS = -std=c11 -pedantic -Wall -Wextra -O2 ${INCS}

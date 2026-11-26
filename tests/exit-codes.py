@@ -8,6 +8,32 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+assert subprocess.check_output([str(ROOT / 's2'), '--print-config']) == (ROOT / 'config.ini').read_bytes()
+
+
+def check_config(env, window_class, save_dir, *flags, warning=None):
+    with subprocess.Popen(
+        [str(ROOT / 's2'), '-i', str(ROOT / 'cover-og.png'), *flags],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ) as app:
+        try:
+            window = subprocess.check_output(
+                ['xdotool', 'search', '--sync', '--onlyvisible', '--name', '^s2$'],
+                env=env, text=True, timeout=5,
+            ).splitlines()[0]
+            properties = subprocess.check_output(['xprop', '-id', window, 'WM_CLASS'], env=env, text=True)
+            assert f'"{window_class}", "{window_class}"' in properties, properties
+            subprocess.run(['xdotool', 'windowfocus', '--sync', window, 'key', 'ctrl+s'], env=env, check=True)
+            stdout, stderr = app.communicate(timeout=5)
+            assert app.returncode == 0, stderr
+            assert warning in stderr if warning else not stderr, stderr
+            saved = Path(stdout.strip())
+            assert saved.parent == save_dir and saved.is_file(), stdout
+        finally:
+            if app.poll() is None:
+                app.kill()
+
+
 with tempfile.TemporaryDirectory(prefix='s2-exit-') as tmp:
     display = Path(tmp) / 'display'
     with display.open('w') as out:
@@ -17,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='s2-exit-') as tmp:
             if display.read_text().strip():
                 break
             time.sleep(.03)
-        env = dict(os.environ, DISPLAY=':' + display.read_text().strip())
+        env = dict(os.environ, DISPLAY=':' + display.read_text().strip(), XDG_CONFIG_HOME=tmp)
         for key, flags, expected in (
             ('Escape', ['--modal'], 0),
             ('Escape', ['--modal', '-c'], 0),
@@ -83,6 +109,24 @@ with tempfile.TemporaryDirectory(prefix='s2-exit-') as tmp:
                 if app.poll() is None:
                     app.terminate()
                     app.wait()
+
+        home = Path(tmp) / 'home'
+        xdg_config = Path(tmp) / 's2' / 'config.ini'
+        home_config = home / '.config' / 's2' / 'config.ini'
+        captures = home / 'captures'
+        fallback = home / 'screenshots'
+        for directory in (xdg_config.parent, home_config.parent, captures, fallback):
+            directory.mkdir(parents=True)
+        xdg_config.write_text('[window]\nclass = xdg-s2\nsave_directory = ~/captures\npadding = -1\n')
+        home_config.write_text('[window]\nclass = home-s2\nsave_directory = ~/captures\n')
+        env['HOME'] = str(home)
+        check_config(env, 'xdg-s2', captures, warning='ignoring invalid [window] padding')
+        check_config(env, 'cli-s2', fallback, '-C', 'cli-s2', '-D', str(fallback),
+                     warning='ignoring invalid [window] padding')
+        check_config(dict(env, XDG_CONFIG_HOME='relative'), 'home-s2', captures)
+        xdg_config.write_text('[broken\n')
+        check_config(env, 's2', fallback, warning=str(xdg_config))
+        print('PASS: embedded config, XDG paths, CLI overrides, and invalid config fallback')
     finally:
         server.terminate()
         server.wait()

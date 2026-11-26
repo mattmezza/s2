@@ -69,10 +69,9 @@ autotools_static fontconfig-2.18.4 --sysconfdir=/etc --localstatedir=/var --disa
 
 # Use a fresh configure/build tree, including when invoked from a local checkout.
 cd "$source_dir"
-cp -R ./*.c ./*.h Makefile config.mk cui.lock.json assets scripts "$work/s2"
-rm -f "$work/s2/config.h"
+cp -R ./*.c s2.h settings.h Makefile config.mk config.ini cui.lock.json assets scripts "$work/s2"
 cd "$work/s2"
-libs=$(pkg-config --static --libs xft libpng pangocairo cairo-xlib fontconfig)
+libs=$(pkg-config --static --libs xft libpng pangocairo cairo-xlib fontconfig glib-2.0)
 make -j "$jobs" s2 LDFLAGS="-static -flto=auto -Wl,-Map,$work/link.map" \
     LDLIBS="-Wl,--start-group $libs -lm -lstdc++ -leconf -Wl,--end-group"
 

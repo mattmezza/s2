@@ -3,8 +3,7 @@
 #include <string.h>
 
 #include "s2.h"
-
-#include "config.h"
+#include "settings.h"
 
 static int
 next_arg(int argc, char *argv[], int *i, const char **out)
@@ -29,6 +28,7 @@ print_usage(const char *argv0)
 	        "  -D <absdir>  absolute save directory override for Ctrl+S\n"
 	        "  --modal     float centered as a dialog (default: regular window)\n"
 	        "  -c           copy rendered result to clipboard on finish\n"
+	        "  --print-config  print the commented default config.ini\n"
 	        "  --licenses  show embedded font license\n"
 	        "  -h           show help\n"
 	        "  -v           show version\n",
@@ -43,7 +43,6 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 
 	memset(cfg, 0, sizeof(*cfg));
 	cfg->output_path = "./s2.png";
-	cfg->window_class = default_window_class;
 	cfg->normal_window = 1;
 
 	for (i = 1; i < argc; i++) {
@@ -103,12 +102,16 @@ parse_args(int argc, char *argv[], struct app_config *cfg)
 int
 main(int argc, char *argv[])
 {
- if(argc==2 && !strcmp(argv[1],"--licenses")) {editor_print_licenses();return 0;}
 	int rc;
 	struct app_config cfg;
 	struct image img;
-	(void)font_name;
-	(void)default_save_directory;
+
+	if (argc == 2 && strcmp(argv[1], "--print-config") == 0)
+		return settings_print_defaults();
+	if (argc == 2 && strcmp(argv[1], "--licenses") == 0) {
+		editor_print_licenses();
+		return 0;
+	}
 
 	rc = parse_args(argc, argv, &cfg);
 	if (rc != 0) {
@@ -132,6 +135,7 @@ main(int argc, char *argv[])
 		return 2;
 	}
 
+	settings_load();
 	memset(&img, 0, sizeof(img));
 	rc = image_load(&cfg, &img);
 	if (rc != 0) {

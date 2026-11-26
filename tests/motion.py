@@ -30,7 +30,7 @@ def run(binary):
             for _ in range(100):
                 if display_file.read_text().strip():break
                 time.sleep(.05)
-            env=dict(os.environ,DISPLAY=':'+display_file.read_text().strip(),S2_PROFILE='1')
+            env=dict(os.environ, XDG_CONFIG_HOME=tmp, DISPLAY=':'+display_file.read_text().strip(),S2_PROFILE='1')
             fixture=directory/'4k.png';png_fixture(fixture)
             def xdo(*args):
                 return subprocess.check_output(['xdotool',*map(str,args)],env=env).decode().strip()

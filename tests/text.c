@@ -35,6 +35,7 @@ static void check_center(cairo_t *cr, cairo_surface_t *surface,
 }
 int main(void)
 {
+ settings_load_defaults();
  assert(load_ui_fonts()==0);
 	FcConfigAppFontAddFile(
 	    NULL, (const FcChar8 *)"assets/fonts/Geist-Regular.ttf");
@@ -184,7 +185,7 @@ int main(void)
  free_actions(&transform.actions);
  /* Theme selection changes chrome only; picker uses configured row order. */
  for(size_t i=0;i<THEME_COUNT;i++) {
-     set_theme(&number,i);assert(number.window_bg==themes[i].workspace && number.raster_dirty);
+     set_theme(&number,i);assert(number.window_bg==settings.themes[i].workspace && number.raster_dirty);
  }
  number.popup=3;menu=popup_rect(&number);
  popup_click(&number,menu.x+90,menu.y+44+26+12);
@@ -223,9 +224,9 @@ int main(void)
  style_selected_text(&edit,XK_C);assert(edit.actions.items[0].text_radius==radius+4);
  style_selected_text(&edit,XK_c);assert(edit.actions.items[0].text_radius==radius);
  assert(color_selected_palette(&edit,XK_3,1));
- assert(edit.actions.items[0].has_fill_color && edit.actions.items[0].fill_color==palette[2] && edit.actions.items[0].p0<0);
+ assert(edit.actions.items[0].has_fill_color && edit.actions.items[0].fill_color==(unsigned int)settings.palette[2] && edit.actions.items[0].p0<0);
  assert(color_selected_palette(&edit,XK_1,0));
- assert(edit.actions.items[0].color==palette[0] && edit.actions.items[0].fill_color==palette[2]);
+ assert(edit.actions.items[0].color==(unsigned int)settings.palette[0] && edit.actions.items[0].fill_color==(unsigned int)settings.palette[2]);
  edit.actions.items[0].font_weight=400;
  struct image regular={.width=300,.height=100,.len=300*100*4},styled_image=regular;
  regular.pixels=calloc(1,regular.len);styled_image.pixels=calloc(1,regular.len);
@@ -260,7 +261,7 @@ int main(void)
  struct editor_state typed={.tool=TOOL_TEXT,.text_mode=1,.text_scale=4,.text_edit_index=-1,.color=0x5689ef};
  append_pasted_text(&typed,"Original");commit_text_input(&typed);
  assert(typed.tool==TOOL_SELECT && typed.selected_idx==0 && typed.actions.cursor==1);
- assert(typed.actions.items[0].font_weight==S2_DEFAULT_TEXT_WEIGHT);
+ assert(typed.actions.items[0].font_weight==settings.text_weight);
  int original_scale=abs(typed.actions.items[0].p0);
  adjust_tool_size(&typed,1);assert(abs(typed.actions.items[0].p0)==original_scale+1 && tool_size(&typed)==(original_scale+1)*TEXT_SCALE_PX);
  adjust_tool_size(&typed,-1);assert(abs(typed.actions.items[0].p0)==original_scale);
@@ -285,7 +286,7 @@ int main(void)
  typed.text_anchor=0;typed.text_cursor=typed.text_len;text_delete_selection(&typed);commit_text_input(&typed);
  assert(typed.actions.cursor==0 && typed.tool==TOOL_SELECT);
  free_actions(&typed.actions);free(typed.sel);
- assert(default_fill_mode==1 && text_bg_padding_for_scale(4)==12);
+ assert(settings.fill==1 && text_bg_padding_for_scale(4)==12);
  struct editor_state coarse={.tool=TOOL_MARKER,.marker_height=24,.blur_radius=5,.highlight_strength=25};
  adjust_tool_size(&coarse,1);assert(coarse.marker_height==32);
  coarse.tool=TOOL_BLUR;adjust_tool_size(&coarse,1);assert(coarse.blur_radius==8);
@@ -322,7 +323,7 @@ int main(void)
     assert(add_simple_action(&connector,ACTION_ARROW,60,120,340,120,5)==0);
     assert(connector.tool==TOOL_SELECT && connector.selected_idx==0);
     struct action *arrow=&connector.actions.items[0];
-    assert(arrow->edges==2 && arrow->edge_style==S2_DEFAULT_ARROW_EDGE_STYLE);
+    assert(arrow->edges==2 && arrow->edge_style==settings.arrow_edge_style);
     int hx,hy;assert(curve_handle_position(&connector,&hx,&hy) && hx==200 && hy==120);
     curve_to_pointer(&connector,200,190,0);
     assert(fabs(arrow->bend-.5)<.001);
@@ -334,22 +335,22 @@ int main(void)
     curve_to_pointer(&connector,110,120,0);assert(fabs(arrow->bend-90./140)<.001);
     curve_to_pointer(&connector,110,120,ShiftMask);assert(arrow->bend==0);
     arrow->rotation=0;arrow->bend=.5;
-    for(size_t i=0;i<sizeof arrow_edge_cycle/sizeof *arrow_edge_cycle;i++) {
+    for(int i=0;i<settings.arrow_edge_count;i++) {
         assert(style_selected_arrow(&connector,XK_e));
-        assert(arrow->edge_style==arrow_edge_cycle[(i+1)%(sizeof arrow_edge_cycle/sizeof *arrow_edge_cycle)]);
+        assert(arrow->edge_style==settings.arrow_edge_cycle[(i+1)%(settings.arrow_edge_count)]);
         memset(connector_image.pixels,0,connector_image.len);
         apply_action(&connector,&connector_image,arrow);
         assert(connector_image.pixels[(190*400+200)*4+3]>0);
     }
-    assert(style_selected_arrow(&connector,XK_E) && arrow->edge_style==arrow_edge_cycle[(sizeof arrow_edge_cycle/sizeof *arrow_edge_cycle)-1]);
-    assert(style_selected_arrow(&connector,XK_e) && arrow->edge_style==arrow_edge_cycle[0]);
-    arrow->edge_style=99;assert(style_selected_arrow(&connector,XK_e) && arrow->edge_style==arrow_edge_cycle[0]);
+    assert(style_selected_arrow(&connector,XK_E) && arrow->edge_style==settings.arrow_edge_cycle[(settings.arrow_edge_count)-1]);
+    assert(style_selected_arrow(&connector,XK_e) && arrow->edge_style==settings.arrow_edge_cycle[0]);
+    arrow->edge_style=99;assert(style_selected_arrow(&connector,XK_e) && arrow->edge_style==settings.arrow_edge_cycle[0]);
     assert(style_selected_arrow(&connector,XK_less) && arrow->edges==3);
     assert(style_selected_arrow(&connector,XK_greater) && arrow->edges==1);
     assert(style_selected_arrow(&connector,XK_less) && arrow->edges==0);
     assert(size_selected_actions(&connector,1,1) && arrow->p0==6);
     assert(size_selected_actions(&connector,-1,1) && arrow->p0==5);
-    assert(color_selected_palette(&connector,XK_2,0) && arrow->color==palette[1]);
+    assert(color_selected_palette(&connector,XK_2,0) && arrow->color==(unsigned int)settings.palette[1]);
     assert(color_selected_palette(&connector,XK_3,1) && !arrow->has_fill_color);
     arrow->type=ACTION_RECT;arrow->p0=5;
     assert(apply_selected_color(&connector,0xff8800,1));
