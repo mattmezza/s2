@@ -7,8 +7,7 @@ A native, keyboard-first screenshot editor for X11. Annotate, highlight, redact,
 ## Get started
 
 ```sh
-make
-maim -s | ./s2 -i -
+maim -s | s2 -i -
 ```
 
 Draw a shape, then edit the selection. **Ctrl+S** saves and exits; **Ctrl+C** copies and exits. **Enter only finishes text entry**. In regular windows, **Esc deselects**; in `--modal` windows, Esc can cancel and quit. The `?` button opens shortcut help; the info button opens About.
@@ -21,6 +20,25 @@ maim -s | s2 --modal -i - -D /tmp    # timestamped saves in /tmp
 ```
 
 Without `-o`, Save/Ctrl+S creates `YYYY-MM-DDTHHMMSS.ffffff.png` in the configured save directory. Seconds and microseconds prevent minute-level collisions; exclusive file creation adds a numeric suffix if a name already exists. Explicit `-o` paths may be overwritten. Successful save, copy, cancellation, and WM Quit return `0`; input/output failures return nonzero.
+
+## Install from GitHub
+
+GitHub releases include fully static executables for Linux x86_64 and AArch64. Run the installer to download and verify the latest release.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mattmezza/s2/main/install.sh | sh
+```
+
+To upgrade or remove the installed executable, use the same script.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mattmezza/s2/main/install.sh | sh -s -- upgrade
+curl -fsSL https://raw.githubusercontent.com/mattmezza/s2/main/install.sh | sh -s -- uninstall
+```
+
+The script manages `$HOME/.local/bin/s2`. Put `$HOME/.local/bin` on your PATH before `/usr/local/bin` if you have an older system installation. Set `S2_INSTALL_DIR` on the `sh` side of the pipe to use another absolute directory. Pass `install v0.1.1` after `sh -s --` to pin a version.
+
+Running s2 requires X11. Install `xclip` for clipboard operations, `xdg-open` to open the repository link, and a capture tool such as `maim` if you want to select an area of the screen.
 
 ## Build and install
 
@@ -38,7 +56,7 @@ sudo make install
 
 The default prefix is `/usr/local`; edit `config.mk` or use `make PREFIX=/your/prefix install`. Installation includes the executable, man page, and project, font, CUI and Clay licenses. The first `make` downloads CUI at the revision in `cui.lock.json` and verifies its SHA-256 checksum. Later builds use the local `vendor/cui` cache. Run `make deps` to fetch it ahead of time. Release source archives include CUI and can build offline.
 
-The executable embeds Geist upright/italic variable fonts, icon masks, cursors, and the font license. It needs no adjacent asset files, API key, or installed Geist fonts. It still links to the platform libraries above. `s2 --licenses` prints the embedded font license.
+The executable embeds Geist upright/italic variable fonts, icon masks, cursors, and the font license. It needs no adjacent asset files, API key, or installed Geist fonts. The default source build links to the system libraries above. `s2 --licenses` prints the embedded font license.
 
 ## Draw and edit
 
@@ -131,10 +149,12 @@ Regenerate the documentation images with `python3 scripts/render_screenshots.py`
 To publish a release, update `VERSION` in `config.mk` and add the matching `vX.Y.Z` heading to `CHANGELOG.md`, then commit all changes and run:
 
 ```sh
-make release name=v0.1.0
+make release name=v0.1.1
 ```
 
 This runs the native regression checks and website build, packages tracked source plus the pinned CUI dependency into an offline source archive, writes SHA-256 checksums, creates an annotated tag, pushes the branch and tag, and publishes a GitHub release. It requires GitHub CLI authentication and the test dependencies listed above. `make dist` creates the source archive from the current commit without publishing.
+
+Publishing the GitHub release triggers the Static release workflow. It builds in Alpine Linux, checks the ELF for dynamic dependencies, and runs the X11 regression tests on each architecture before attaching executables, checksums, and relink archives to the release. The installer can download a new release once those assets are attached.
 
 ## License
 

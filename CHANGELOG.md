@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.1 — 2026-11-26
+
+- Publish fully static Linux executables for x86_64 and AArch64, with SHA-256 checksums and relink archives.
+- Add a curl installer for per-user installation, upgrades, and removal.
+
 ## v0.1.0 — 2026-10-31
 
 - Redesign the native editor with CUI, embedded Geist fonts/icons, centered responsive bars, themes, and a themed About dialog with a repository link.

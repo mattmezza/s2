@@ -1,0 +1,15 @@
+Relinking s2
+
+Use Alpine Linux 3.23 on the architecture named in this archive. Install
+build-base and use the GCC version in gcc-version for compatibility with
+the Alpine archives built with link-time optimization.
+
+Replace the desired archives in libraries/ with your own builds, then run
+this command from the root of the extracted archive.
+
+    cc -static -flto=auto -o s2 objects/*.o \
+        -Wl,--start-group libraries/*.a -Wl,--end-group
+
+The libraries' source, license notices, and any Alpine recipes and patches
+are in sources/. Project and bundled asset notices are in notices/.
+The s2 source and pinned CUI source are in the release's source archive.

@@ -35,7 +35,7 @@ checksum = archive.with_name('SHA256SUMS')
 checksum.write_text(f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n')
 notes = (ROOT / 'CHANGELOG.md').read_text().split(f'## {tag}', 1)[1].split('\n## ', 1)[0].strip()
 notes_path = ROOT / 'dist/release-notes.md'
-notes_path.write_text(notes + '\n\nBuild instructions and runtime dependencies are in README.md. This source archive includes the pinned CUI dependency for offline builds.\n')
+notes_path.write_text(notes + '\n\nSee the [installation guide](https://github.com/mattmezza/s2#install-from-github) for the static Linux executables. The source archive includes the pinned CUI dependency for offline builds.\n')
 head = run('git', 'rev-parse', 'HEAD', capture=True)
 if run('git', 'tag', '--list', tag, capture=True):
     if run('git', 'rev-list', '-n1', tag, capture=True) != head:
@@ -43,4 +43,5 @@ if run('git', 'tag', '--list', tag, capture=True):
 else:
     run('git', 'tag', '-a', tag, '-m', f's2 {tag}')
 run('git', 'push', 'origin', 'HEAD', f'refs/tags/{tag}')
-run('gh', 'release', 'create', tag, str(archive), str(checksum), '--verify-tag', '--title', f's2 {tag}', '--notes-file', str(notes_path))
+release_flags = ['--prerelease'] if '-' in version else []
+run('gh', 'release', 'create', tag, str(archive), str(checksum), '--verify-tag', '--title', f's2 {tag}', '--notes-file', str(notes_path), *release_flags)

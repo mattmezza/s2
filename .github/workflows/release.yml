@@ -1,0 +1,86 @@
+name: Static release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: static-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
+    steps:
+      - name: Validate release tag
+        run: '[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          lfs: true
+          persist-credentials: false
+      - name: Build and verify the static executable
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          docker run --rm -v "$PWD:/src:ro" -v "$PWD/dist:/out" \
+            alpine:3.23 sh /src/scripts/build-static.sh /out
+          install -m 755 "dist/s2-linux-$ARCH" s2
+          test "$(./s2 -v)" = "s2-${TAG#v}"
+      - name: Run the editor on an isolated X11 server
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y xvfb xdotool xclip x11-utils libx11-6 fontconfig fonts-dejavu-core imagemagick
+          python3 tests/exit-codes.py
+          python3 tests/about.py
+          python3 tests/connectors.py
+          python3 tests/smoke.py
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: s2-linux-${{ matrix.arch }}
+          path: dist/s2-linux-${{ matrix.arch }}*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: s2-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Attach verified executables and relink archives to the release
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        working-directory: dist
+        run: |
+          sha256sum -c s2-linux-x86_64.sha256 s2-linux-aarch64.sha256
+          test -s s2-linux-x86_64-relink.tar.gz
+          test -s s2-linux-aarch64-relink.tar.gz
+          gh release upload "$TAG" --clobber s2-linux-*

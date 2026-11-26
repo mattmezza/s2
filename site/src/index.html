@@ -8,7 +8,7 @@
 <meta property="og:title" content="s2 — Super Screenshot. Make your point.">
 <meta property="og:description" content="Capture a detail. Make it clear. Copy it. A native screenshot editor for X11.">
 <meta property="og:url" content="https://mattmezza.github.io/s2/">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"s2 — Super Screenshot","applicationCategory":"MultimediaApplication","operatingSystem":"Linux / X11","softwareVersion":"0.1.0","license":"https://github.com/mattmezza/s2/blob/main/LICENSE","url":"https://mattmezza.github.io/s2/","downloadUrl":"https://github.com/mattmezza/s2/releases/tag/v0.1.0","description":"A native, keyboard-first screenshot editor for X11 with arrows, shapes, editable text, numbered pins, highlighting, blur, and pixelation.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@type":"Person","name":"Matteo Merola","url":"https://github.com/mattmezza"}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"s2 — Super Screenshot","applicationCategory":"MultimediaApplication","operatingSystem":"Linux / X11","softwareVersion":"{{VERSION}}","license":"https://github.com/mattmezza/s2/blob/main/LICENSE","url":"https://mattmezza.github.io/s2/","downloadUrl":"https://github.com/mattmezza/s2/releases/latest","description":"A native, keyboard-first screenshot editor for X11 with arrows, shapes, editable text, numbered pins, highlighting, blur, and pixelation.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@type":"Person","name":"Matteo Merola","url":"https://github.com/mattmezza"}}</script>
 </head>
 <body>
 {{NAV}}
@@ -17,10 +17,10 @@
 <div class="hero-glow"></div>
 <div class="container relative">
 <div class="text-center max-w-3xl mx-auto">
-<a href="https://github.com/mattmezza/s2/releases/tag/v0.1.0" class="inline-flex items-center gap-3 rounded-full border border-[#3a465f] bg-[#181f2d] px-4 py-2 text-xs accent"><span class="w-1.5 h-1.5 rounded-full bg-[#b3caff]"></span> v0.1.0 · Meet Super Screenshot {{ICON_GITHUB}}</a>
+<a href="https://github.com/mattmezza/s2/releases/latest" class="inline-flex items-center gap-3 rounded-full border border-[#3a465f] bg-[#181f2d] px-4 py-2 text-xs accent">Latest release {{ICON_GITHUB}}</a>
 <h1 class="mt-7 text-6xl md:text-8xl font-medium tracking-[-.065em] leading-[1.02]">Less explaining.<br><span class="accent">More pointing.</span></h1>
 <p class="muted text-lg md:text-xl leading-relaxed max-w-xl mx-auto mt-7">A native, keyboard-first screenshot editor for X11. Add the arrow, mark the detail, copy the result. Get back to what you were doing.</p>
-<div class="flex flex-wrap justify-center gap-3 mt-8"><a class="btn" href="#install">Build s2 <span aria-hidden="true">{{ICON_ARROW}}</span></a><a class="btn btn-secondary" href="docs.html">Read the docs <span aria-hidden="true">→</span></a></div>
+<div class="flex flex-wrap justify-center gap-3 mt-8"><a class="btn" href="#install">Install s2 <span aria-hidden="true">{{ICON_ARROW}}</span></a><a class="btn btn-secondary" href="docs.html">Read the docs <span aria-hidden="true">→</span></a></div>
 <p class="mt-5 text-xs muted">Linux / X11 <span class="mx-3">·</span> MIT licensed <span class="mx-3">·</span> No account. No API key.</p>
 </div>
 <div class="relative mt-14 md:mt-20 max-w-5xl mx-auto">
@@ -65,12 +65,8 @@
 </section>
 <section id="install" class="border-y border-[#30323a] dot-grid py-24">
 <div class="container grid lg:grid-cols-[.85fr_1.15fr] gap-14">
-<div class="reveal"><p class="eyebrow">Small app. Yours to make.</p><h2 class="text-4xl md:text-5xl tracking-[-.045em] mt-4">Build it.<br>Bind it.<br>Make it yours.</h2><p class="muted mt-6 leading-relaxed">Free and open source under MIT. Build from source, bind a capture command to your favorite shortcut, and set the defaults in <code class="accent">config.h</code>.</p><p class="muted mt-4 text-sm leading-relaxed">Requires Linux with X11. The native executable embeds its Geist fonts and icons; no adjacent asset files or API key are needed at runtime.</p><a class="inline-block accent text-sm mt-6" href="https://github.com/mattmezza/s2/releases/tag/v0.1.0">Download the v0.1.0 source release {{ICON_GITHUB}}</a></div>
-<div class="panel p-6 md:p-8 reveal"><div class="flex items-center justify-between"><h3 class="font-medium">Build from source</h3><button class="text-xs accent p-2" data-copy="install-command" type="button">Copy commands</button></div><pre class="code-block mt-4"><code id="install-command">git clone https://github.com/mattmezza/s2.git
-cd s2
-make
-sudo make install
-maim -s | s2 --modal -i -</code></pre><p class="text-sm muted mt-5 leading-relaxed">Install the native build dependencies first. Make downloads the pinned CUI dependency on the first build.</p><a href="docs.html#build-and-install" class="accent text-sm inline-block mt-4">Dependency list and Arch Linux install commands →</a><div class="border-t border-[#343a49] mt-6 pt-5 text-sm muted leading-relaxed"><span class="text-[#eef0f6]">Prefer to tune the details?</span> Set your palette, save directory, tool dimensions, typography, arrow styles, and theme mappings in <code>config.h</code>, then rebuild.</div></div>
+<div class="reveal"><h2 class="text-4xl md:text-5xl tracking-[-.045em]">Install s2</h2><p class="muted mt-6 leading-relaxed">Download a fully static executable for Linux on x86_64 or AArch64. s2 runs on X11 and embeds its Geist fonts and icons.</p><a class="inline-block accent text-sm mt-6" href="https://github.com/mattmezza/s2/releases/latest">Latest GitHub release {{ICON_GITHUB}}</a></div>
+<div class="panel p-6 md:p-8 reveal"><div class="flex items-center justify-between"><h3 class="font-medium">Install from GitHub</h3><button class="text-xs accent p-2" data-copy="install-command" type="button">Copy command</button></div><pre class="code-block mt-4"><code id="install-command">curl -fsSL https://raw.githubusercontent.com/mattmezza/s2/main/install.sh | sh</code></pre><p class="text-sm muted mt-5 leading-relaxed">Installs into <code>$HOME/.local/bin</code>. From there, try <code>maim -s | s2 --modal -i -</code> to annotate a capture.</p><a href="docs.html#install-from-github" class="accent text-sm inline-block mt-4">Upgrade or uninstall →</a><div class="border-t border-[#343a49] mt-6 pt-5 text-sm muted leading-relaxed"><a href="docs.html#build-and-install" class="accent">Build from source</a> to set your palette, save directory, tool dimensions, and typography in <code>config.h</code>.</div></div>
 </div>
 </section>
 <section class="container max-w-4xl py-24">
@@ -80,7 +76,7 @@ maim -s | s2 --modal -i -</code></pre><p class="text-sm muted mt-5 leading-relax
 <details><summary>Does it work on Wayland, macOS, or Windows?</summary><p>s2 currently targets X11 on Linux. Native Wayland, macOS, and Windows support are not provided by this release.</p></details>
 <details><summary>Where do saved images go?</summary><p><kbd>Ctrl S</kbd> saves and exits. Without <code>-o</code>, s2 creates a timestamped PNG in the configured save directory. Use <code>-D /absolute/directory</code> to change that directory, or <code>-o annotated.png</code> for an explicit output path. Explicit output paths may be overwritten. Enter only finishes text entry.</p></details>
 <details><summary>What do I need for the clipboard?</summary><p>Install <code>xclip</code>. <kbd>Ctrl C</kbd> copies the rendered image and exits; <kbd>Ctrl Y</kbd> copies and keeps the editor open. Clipboard export includes the annotations and uses the capture's original dimensions.</p></details>
-<details><summary>Is it free? Does it need an online service?</summary><p>s2 is free and open source under the MIT license. Editing runs locally and requires no account, API key, or online service. Building from a Git checkout downloads the pinned CUI source once. The executable uses the native system libraries listed in the installation guide.</p></details>
+<details><summary>Is it free? Does it need an online service?</summary><p>s2 is free and open source under the MIT license. Editing runs locally and requires no account, API key, or online service. The installer downloads a static release executable. Building from a Git checkout downloads the pinned CUI source once.</p></details>
 <div class="mt-16 text-center"><h3 class="text-3xl tracking-tight">A screenshot is good.<br>A clear screenshot is better.</h3><div class="mt-7 flex justify-center flex-wrap gap-3"><a class="btn" href="#install">Build s2 {{ICON_ARROW}}</a><a class="btn btn-secondary" href="docs.html">Open the documentation →</a></div></div>
 </section>
 </main>
